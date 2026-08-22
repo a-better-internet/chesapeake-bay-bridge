@@ -1,0 +1,1799 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bay Bridge Crossing</title>
+<style>
+  :root{
+    --slate:#bcd6e6; --peri:#c4cddc; --oak:#caa978; --ink:#13212b;
+    --warm:#fff0dc; --deep:#0d1a24; --seafoam:#7fb8a8; --amber:#e8a15c;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:var(--deep);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--warm);
+    -webkit-user-select:none;user-select:none;touch-action:none}
+  #c{display:block;width:100vw;height:100vh}
+  .hud{position:fixed;pointer-events:none;z-index:5;text-shadow:0 1px 3px rgba(6,14,20,.7)}
+
+  #top{top:16px;left:18px;max-width:min(46vw,420px)}
+  #title{font-size:12px;letter-spacing:.32em;color:var(--slate);opacity:.85}
+  #seg{margin-top:3px;font-size:19px;font-weight:600;letter-spacing:.01em;color:#fff;line-height:1.15}
+  #sub{margin-top:2px;font-size:11px;letter-spacing:.14em;color:var(--peri);opacity:.75}
+  #barwrap{margin-top:11px;width:250px;max-width:46vw}
+  #bartrack{height:4px;border-radius:3px;background:rgba(188,214,230,.22);overflow:hidden}
+  #barfill{height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,var(--seafoam),var(--slate));transition:width .18s linear}
+  #barlab{margin-top:5px;font-size:10px;letter-spacing:.14em;color:var(--peri);opacity:.8;display:flex;justify-content:space-between}
+
+  #speedo{right:22px;bottom:20px;text-align:right}
+  #mph{font-size:52px;font-weight:700;line-height:.9;color:#fff;font-variant-numeric:tabular-nums}
+  #mphu{font-size:12px;letter-spacing:.3em;color:var(--slate);opacity:.85}
+  #gearind{margin-top:4px;font-size:12px;letter-spacing:.18em;color:var(--seafoam);font-weight:600}
+
+  #env{left:18px;bottom:20px;font-size:11px;letter-spacing:.06em;line-height:1.7;opacity:.9}
+  #env .k{color:var(--slate);opacity:.7} #env .v{color:#fff}
+
+  #keys{top:16px;right:20px;text-align:right;font-size:10.5px;line-height:1.85;letter-spacing:.05em;color:var(--peri);opacity:.62}
+  #keys b{color:var(--warm);font-weight:600}
+
+  #banner{top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity .5s}
+  #banner.show{opacity:1}
+  #banner .big{font-size:34px;font-weight:700;color:#fff;letter-spacing:.02em}
+  #banner .small{font-size:13px;letter-spacing:.22em;color:var(--slate);margin-top:8px}
+
+  #start{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(120% 90% at 50% 18%,#1a3345 0%,#0b1620 62%,#070f16 100%)}
+  #card{width:min(520px,90vw);padding:34px 34px 30px;border-radius:18px;
+    background:linear-gradient(160deg,rgba(28,52,68,.9),rgba(14,26,36,.92));
+    border:1px solid rgba(188,214,230,.16);box-shadow:0 30px 90px rgba(0,0,0,.55);backdrop-filter:blur(6px)}
+  #card h1{font-size:26px;letter-spacing:.01em;color:#fff;line-height:1.1}
+  #card .eye{font-size:11px;letter-spacing:.34em;color:var(--seafoam);margin-bottom:9px}
+  #card p{margin-top:12px;font-size:13px;line-height:1.6;color:var(--peri)}
+  #card .grid{margin-top:18px;display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:12px;color:var(--peri)}
+  #card .grid b{color:var(--warm);font-weight:600;letter-spacing:.04em}
+  #go{margin-top:22px;width:100%;padding:14px;border:0;border-radius:11px;cursor:pointer;font-family:inherit;
+    font-size:14px;font-weight:700;letter-spacing:.14em;color:var(--ink);
+    background:linear-gradient(90deg,var(--slate),var(--seafoam));transition:transform .12s,filter .12s}
+  #go:hover{transform:translateY(-1px);filter:brightness(1.08)} #go:active{transform:translateY(0)}
+  .hint{margin-top:12px;text-align:center;font-size:10.5px;letter-spacing:.1em;color:var(--slate);opacity:.6}
+
+  #touch{position:fixed;inset:0;z-index:6;display:none}
+  .tbtn{position:absolute;bottom:26px;width:76px;height:76px;border-radius:50%;
+    background:rgba(188,214,230,.13);border:1px solid rgba(188,214,230,.3);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;pointer-events:auto;backdrop-filter:blur(3px)}
+  #tL{left:22px} #tR{left:112px} #tB{right:112px} #tA{right:22px;background:rgba(127,184,168,.22)}
+  @media (hover:none) and (pointer:coarse){ #touch{display:block} #keys{display:none} }
+</style>
+
+<canvas id="c"></canvas>
+
+<div class="hud" id="top">
+  <div id="title">CHESAPEAKE&nbsp;BAY&nbsp;BRIDGE</div>
+  <div id="seg">Sandy Point</div>
+  <div id="sub">US 50 · 301 — EASTBOUND · 4.3 MI</div>
+  <div id="barwrap">
+    <div id="bartrack"><div id="barfill"></div></div>
+    <div id="barlab"><span>SANDY POINT</span><span id="pct">0.0 mi</span><span>KENT IS.</span></div>
+  </div>
+</div>
+
+<div class="hud" id="keys">
+  <div><b>W</b>/<b>↑</b> throttle · <b>S</b>/<b>↓</b> brake</div>
+  <div><b>A D</b>/<b>← →</b> steer · <b>Space</b> handbrake</div>
+  <div><b>R</b> rain · <b>N</b> auto day/night · <b>, .</b> time</div>
+  <div><b>C</b> camera · <b>H</b> hide traffic · <b>B</b> gear up</div>
+  <div><b>O</b> bird's eye · <b>Scroll</b> zoom · <b>Drag</b> orbit (cinema)</div>
+</div>
+
+<div class="hud" id="speedo"><div id="mph">0</div><div id="mphu">MPH</div><div id="gearind">GEAR 2</div></div>
+
+<div class="hud" id="env">
+  <div><span class="k">TIME</span> <span class="v" id="eTime">12:00</span></div>
+  <div><span class="k">SKY&nbsp;</span> <span class="v" id="eSky">Clear</span></div>
+  <div><span class="k">ETA&nbsp;</span> <span class="v" id="eEta">—</span></div>
+</div>
+
+<div class="hud" id="banner"><div class="big" id="bBig"></div><div class="small" id="bSmall"></div></div>
+
+<div id="touch">
+  <div class="tbtn" id="tL">◄</div><div class="tbtn" id="tR">►</div>
+  <div class="tbtn" id="tB">▼</div><div class="tbtn" id="tA">▲</div>
+</div>
+
+<div id="start">
+  <div id="card">
+    <div class="eye">MARYLAND · US 50/301 · EST. 1952</div>
+    <h1>Bay Bridge Crossing</h1>
+    <p>Drive the full 4.3-mile William Preston Lane Jr. Memorial Bridge — Sandy Point to
+       Stevensville. Up over the western suspension span, through the steel truss cage above
+       the eastern channel, then the long trestle to Kent Island. End to end is about four minutes.</p>
+    <div class="grid">
+      <b>Drive</b><span>W A S D or Arrow keys</span>
+      <b>Handbrake</b><span>Space</span>
+      <b>Weather</b><span>R rain · N auto day/night · , . scrub time</span>
+      <b>Camera</b><span>C cycles chase / hood / cinematic · O bird's eye</span>
+    </div>
+    <button id="go">BEGIN CROSSING</button>
+    <div class="hint">Watch your lane — the barriers and other cars are solid</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================================================================
+   BAY BRIDGE CROSSING  — Chesapeake Bay Bridge (Maryland), full-length drive.
+   ============================================================================ */
+'use strict';
+const T=THREE;
+let renderer,scene,camera,clock;
+
+// ---- scale: 1 unit = 1 metre. Real bridge ~6.9 km. -----------------------
+const N=900;
+const ROAD_HALF=5.4;
+const BARR_H=1.15;
+const UP=new T.Vector3(0,1,0);
+const MILES_PER_M=0.000621371;
+
+let PATH_POS=[],PATH_TAN=[],PATH_RIGHT=[],PATH_CUM=[],PATH_LEN=1,curve;
+
+// ---- driving state (road-space kinematic model) --------------------------
+const car={ s:20, x:-1.9, head:0, speed:0, steer:0, gear:2, started:false };
+const GEARS=[null,{a:0.75,m:0.6,label:'1 · LOW'},{a:1.0,m:1.0,label:'2 · DRIVE'},{a:1.55,m:1.25,label:'3 · OVERDRIVE'},{a:2.1,m:1.6,label:'4 · SUPER OVERDRIVE'},{a:2.8,m:2.15,label:'5 · MEGA OVERDRIVE'},{a:3.8,m:2.9,label:'6 · LUDICROUS'}];
+let finished=false;
+const keys={};
+let camMode=0, showTraffic=true;
+let camZoom=1, cineYaw=0.7, cinePitch=0.5, dragging=false, lastMX=0, lastMY=0;
+
+// vehicle physics constants
+const MAX_SPEED=30, REVERSE=7, ACCEL=12, BRAKE_DECEL=22, FRICTION=0.55,
+      TURN=0.72, ALIGN=2.8, HEAD_CLAMP=0.30, LANE_LIMIT=ROAD_HALF-1.15;
+
+// environment
+let timeOfDay=0.42, autoTime=false, rain=0, rainTarget=0;
+
+let sky,sunMesh,sunLight,hemi,amb,starField,waterMesh;
+let clouds=[];
+let boats=[], gulls=[];
+let rainSys=null; const WATER_ANIM=[];
+const trafficCars=[];   // {group,head[],tail[],wheels[],s,x,spd,len,wid}
+let player;             // player vehicle object
+
+/* =============================== TEXTURES =============================== */
+function cvs(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+function tex(c,rx,ry){const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;
+  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;t.encoding=T.sRGBEncoding;return t;}
+function texL(c,rx,ry){const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;
+  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;return t;}   // linear (data/bump)
+function noiseFill(ctx,w,h,base,amp){const img=ctx.createImageData(w,h),d=img.data;
+  const br=parseInt(base.slice(1,3),16),bg=parseInt(base.slice(3,5),16),bb=parseInt(base.slice(5,7),16);
+  for(let i=0;i<d.length;i+=4){const n=(Math.random()-.5)*amp;
+    d[i]=Math.max(0,Math.min(255,br+n));d[i+1]=Math.max(0,Math.min(255,bg+n));
+    d[i+2]=Math.max(0,Math.min(255,bb+n));d[i+3]=255;}ctx.putImageData(img,0,0);}
+function crack(x,x0,y0,len,ang,w){x.strokeStyle='rgba(30,32,34,'+(0.35+Math.random()*0.3)+')';x.lineWidth=w||1;
+  x.beginPath();x.moveTo(x0,y0);let px=x0,py=y0;const segs=4+Math.floor(Math.random()*4);
+  for(let k=0;k<segs;k++){ang+=(Math.random()-.5)*0.9;px+=Math.cos(ang)*len/segs;py+=Math.sin(ang)*len/segs;x.lineTo(px,py);}x.stroke();}
+function roadTexture(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
+  noiseFill(x,w,h,'#8b8f92',22);
+  // mottled tonal patches (repairs / staining)
+  for(let i=0;i<26;i++){x.globalAlpha=.05+Math.random()*.08;x.fillStyle=Math.random()>.5?'#6c6f72':'#a2a6a9';
+    const px=Math.random()*w,py=Math.random()*h,pw=20+Math.random()*80,ph=30+Math.random()*140;x.fillRect(px,py,pw,ph);}
+  // tire wear paths
+  x.globalAlpha=.10;x.fillStyle='#6f7275';x.fillRect(w*0.28,0,18,h);x.fillRect(w*0.62,0,18,h);
+  // cracks + tar-sealed seams
+  x.globalAlpha=1;for(let i=0;i<10;i++)crack(x,Math.random()*w,Math.random()*h,60+Math.random()*120,Math.random()*Math.PI,1);
+  x.strokeStyle='rgba(24,26,28,0.5)';x.lineWidth=3;
+  for(let i=0;i<5;i++){const yy=Math.random()*h;x.beginPath();x.moveTo(0,yy);for(let xx=0;xx<=w;xx+=16)x.lineTo(xx,yy+(Math.random()-.5)*6);x.stroke();}
+  // markings: double yellow + white edge
+  x.globalAlpha=1;x.fillStyle='#e6b13a';x.fillRect(w*.5-14,0,7,h);x.fillRect(w*.5+7,0,7,h);
+  x.fillStyle='#e9edef';x.fillRect(w-16,0,7,h);
+  return tex(c,1,1);}
+function roadBump(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
+  x.fillStyle='#808080';x.fillRect(0,0,w,h);
+  // aggregate speckle
+  for(let i=0;i<9000;i++){const v=110+Math.random()*90;x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(Math.random()*w,Math.random()*h,1,1);}
+  // cracks carved dark (recessed)
+  for(let i=0;i<14;i++){x.strokeStyle='rgba(40,40,40,0.9)';x.lineWidth=2;const x0=Math.random()*w,y0=Math.random()*h;
+    x.beginPath();x.moveTo(x0,y0);let px=x0,py=y0,ang=Math.random()*6.28;for(let k=0;k<6;k++){ang+=(Math.random()-.5)*0.9;px+=Math.cos(ang)*20;py+=Math.sin(ang)*20;x.lineTo(px,py);}x.stroke();}
+  return texL(c,1,1);}
+function concreteTexture(shade){const w=128,h=256,c=cvs(w,h),x=c.getContext('2d');
+  noiseFill(x,w,h,shade||'#c9cdd0',16);
+  // segment joints (vertical panels ~ every quarter)
+  x.strokeStyle='rgba(120,126,130,0.5)';x.lineWidth=2;
+  for(let i=1;i<4;i++){x.beginPath();x.moveTo(0,i*h/4);x.lineTo(w,i*h/4);x.stroke();}
+  // weather streaks + grime at base
+  x.globalAlpha=.10;for(let i=0;i<30;i++){x.fillStyle='#8b9196';x.fillRect(Math.random()*w,0,1+Math.random()*2,20+Math.random()*90);}
+  const g=x.createLinearGradient(0,h*0.7,0,h);g.addColorStop(0,'rgba(90,96,100,0)');g.addColorStop(1,'rgba(70,76,80,0.35)');
+  x.globalAlpha=1;x.fillStyle=g;x.fillRect(0,h*0.7,w,h*0.3);
+  return tex(c,1,1);}
+function concreteBump(){const w=128,h=256,c=cvs(w,h),x=c.getContext('2d');
+  x.fillStyle='#888';x.fillRect(0,0,w,h);
+  for(let i=0;i<4000;i++){const v=120+Math.random()*70;x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(Math.random()*w,Math.random()*h,1,1);}
+  x.strokeStyle='#3a3a3a';x.lineWidth=3;for(let i=1;i<4;i++){x.beginPath();x.moveTo(0,i*h/4);x.lineTo(w,i*h/4);x.stroke();}
+  return texL(c,1,1);}
+function steelTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#cfd6da',12);
+  // panel lines + rivet rows
+  x.strokeStyle='rgba(150,158,163,0.5)';x.lineWidth=1;
+  x.strokeRect(6,6,w-12,h-12);
+  x.fillStyle='rgba(120,128,133,0.8)';
+  for(let e=10;e<w;e+=W_STEP(w)){x.beginPath();x.arc(e,10,1.6,0,7);x.fill();x.beginPath();x.arc(e,h-10,1.6,0,7);x.fill();}
+  for(let e=10;e<h;e+=W_STEP(h)){x.beginPath();x.arc(10,e,1.6,0,7);x.fill();x.beginPath();x.arc(w-10,e,1.6,0,7);x.fill();}
+  // faint rust streaks
+  x.globalAlpha=.06;for(let i=0;i<8;i++){x.fillStyle='#9c7a5a';x.fillRect(Math.random()*w,Math.random()*h,1,10+Math.random()*20);}x.globalAlpha=1;
+  return tex(c,1,1);}
+function W_STEP(n){return Math.max(12,n/8);}
+function steelBump(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');x.fillStyle='#888';x.fillRect(0,0,w,h);
+  x.fillStyle='#d8d8d8';for(let e=10;e<w;e+=W_STEP(w)){x.beginPath();x.arc(e,10,2,0,7);x.fill();x.beginPath();x.arc(e,h-10,2,0,7);x.fill();}
+  for(let e=10;e<h;e+=W_STEP(h)){x.beginPath();x.arc(10,e,2,0,7);x.fill();x.beginPath();x.arc(w-10,e,2,0,7);x.fill();}
+  return texL(c,1,1);}
+function blobTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
+  const g=x.createRadialGradient(s/2,s/2,2,s/2,s/2,s/2);g.addColorStop(0,'rgba(0,0,0,0.55)');g.addColorStop(0.6,'rgba(0,0,0,0.28)');g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g;x.fillRect(0,0,s,s);return texL(c,1,1);}
+function glowTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
+  const g=x.createRadialGradient(s/2,s/2,2,s/2,s/2,s/2);g.addColorStop(0,'rgba(255,240,200,0.95)');g.addColorStop(0.35,'rgba(255,226,160,0.5)');g.addColorStop(1,'rgba(255,220,150,0)');
+  x.fillStyle=g;x.fillRect(0,0,s,s);return texL(c,1,1);}
+// wet base + foam ring: softens where a pier meets the water
+function foamTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');const cx=s/2,r=s/2;
+  const g=x.createRadialGradient(cx,cx,r*0.24,cx,cx,r);
+  g.addColorStop(0,'rgba(70,92,96,0.0)');
+  g.addColorStop(0.30,'rgba(40,58,62,0.34)');   // wet darkening hugging the column
+  g.addColorStop(0.46,'rgba(233,244,246,0.62)'); // foam churn ring
+  g.addColorStop(0.66,'rgba(210,230,233,0.24)');
+  g.addColorStop(1,'rgba(255,255,255,0.0)');
+  x.fillStyle=g;x.fillRect(0,0,s,s);
+  x.globalAlpha=0.6;for(let i=0;i<50;i++){const a=Math.random()*6.28,rr=r*(0.4+Math.random()*0.22);
+    x.fillStyle='rgba(255,255,255,0.5)';x.beginPath();x.arc(cx+Math.cos(a)*rr,cx+Math.sin(a)*rr,0.8+Math.random()*1.8,0,6.28);x.fill();}
+  x.globalAlpha=1;return texL(c,1,1);}
+function waterTexture(){const w=256,h=256,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#3c5f64',20);
+  x.globalAlpha=.10;for(let i=0;i<600;i++){x.fillStyle=Math.random()>.5?'#4a7176':'#2e4d52';x.fillRect(Math.random()*w,Math.random()*h,2,1);}
+  x.globalAlpha=1;return tex(c,120,120);}
+// procedural wave normal map: sum of a few directional sine ripples encoded as a normal map
+function waterNormalTexture(){const s=256,c=cvs(s,s),x=c.getContext('2d');const img=x.createImageData(s,s),d=img.data;
+  const waves=[[0.09,0.05,1.0],[-0.05,0.11,0.7],[0.14,-0.08,0.5],[0.03,0.19,0.35]];
+  for(let j=0;j<s;j++)for(let i=0;i<s;i++){
+    let nx=0,nz=0;
+    for(const wv of waves){const ph=(i*wv[0]+j*wv[1]);nx+=Math.cos(ph)*wv[0]*wv[2];nz+=Math.cos(ph)*wv[1]*wv[2];}
+    const k=(j*s+i)*4;
+    d[k]=Math.max(0,Math.min(255,128+nx*90));
+    d[k+1]=Math.max(0,Math.min(255,128+nz*90));
+    d[k+2]=255;d[k+3]=255;
+  }
+  x.putImageData(img,0,0);return texL(c,90,90);}
+function sandTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#c9b483',20);return tex(c,40,40);}
+function grassTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#6f7d54',26);
+  x.globalAlpha=.15;for(let i=0;i<300;i++){x.fillStyle=Math.random()>.5?'#5a6743':'#84925f';x.fillRect(Math.random()*w,Math.random()*h,2,2);}
+  x.globalAlpha=1;return tex(c,30,30);}
+function reedTexture(){const w=64,h=64,c=cvs(w,h),x=c.getContext('2d');x.clearRect(0,0,w,h);
+  const cols=['#b7a86a','#9caf6a','#c8b878','#8f9e5c','#d8c98a'];
+  for(let i=0;i<46;i++){const bx=Math.random()*w,bh=h*(0.45+Math.random()*0.55);
+    x.strokeStyle=cols[i%cols.length];x.lineWidth=1+Math.random()*1.2;
+    x.beginPath();x.moveTo(bx,h);x.lineTo(bx+(Math.random()-.5)*7,h-bh);x.stroke();}
+  return texL(c,1,1);}
+function cloudTexture(seed){const w=320,h=160,c=cvs(w,h),x=c.getContext('2d');
+  // Seeded RNG so each texture in the pool comes out different but reproducible.
+  let sd=(seed||Math.random()*9999)+1;const rnd=()=>{sd=(sd*9301+49297)%233280;return sd/233280;};
+  // The cartoony look came from a small number of BIG defined lobes — every edge was a hard arc.
+  // Instead: hundreds of very small, very soft dots inside an irregular elliptical envelope.
+  // Density accumulates naturally; edges are organic, no visible arcs.
+  const cx=w*0.5, cy=h*0.58;
+  const sxA=w*(0.28+rnd()*0.10), syA=h*(0.20+rnd()*0.06);
+  // give the cloud a random asymmetric bias (some drift left, some right, some torn)
+  const skew=(rnd()*2-1)*0.35, tear=rnd()<0.3?0.6+rnd()*0.4:1.0;
+  const dots=240+Math.floor(rnd()*140);
+  for(let i=0;i<dots;i++){
+    let u=rnd()*2-1, v=rnd()*2-1;
+    // reject beyond a soft envelope; skew shape asymmetrically
+    u+=skew*(1-Math.abs(v));
+    const d=Math.sqrt(u*u*tear+v*v);
+    if(d>1.05)continue;
+    // vertical shaping: taller centre, roughly flat base with jitter (not a perfect line)
+    const baseJitter=(rnd()-0.5)*h*0.06;
+    const rise=Math.pow(1-Math.min(1,Math.abs(u)),0.65)*(0.5+rnd()*0.5);
+    const px=cx+u*sxA;
+    const py=cy - Math.max(0,-v)*syA*rise*1.3 + Math.max(0,v)*syA*0.15 + baseJitter;
+    const r=6+rnd()*22;
+    const a=0.08+rnd()*0.14;
+    const g=x.createRadialGradient(px,py,0,px,py,r);
+    g.addColorStop(0,'rgba(255,255,255,'+a+')');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g;x.beginPath();x.arc(px,py,r,0,7);x.fill();
+  }
+  // subtle blue-grey underside (thin, uneven)
+  x.globalCompositeOperation='source-atop';
+  const sh=x.createLinearGradient(0,cy-h*0.02,0,cy+h*0.18);
+  sh.addColorStop(0,'rgba(205,216,228,0)');sh.addColorStop(1,'rgba(172,188,208,0.28)');
+  x.fillStyle=sh;x.fillRect(0,cy-h*0.15,w,h*0.4);
+  x.globalCompositeOperation='source-over';
+  return new T.CanvasTexture(c);}
+// pool of 6 distinct cloud textures so no two clouds in the sky look identical
+const T_CLOUD_POOL=[cloudTexture(11),cloudTexture(47),cloudTexture(89),cloudTexture(133),cloudTexture(211),cloudTexture(307)];
+function wispTexture(){const s=256,c=cvs(s,s),x=c.getContext('2d');
+  for(let k=0;k<10;k++){const cy=s*0.4+Math.random()*s*0.2;
+    const gg=x.createRadialGradient(s*0.5,cy,4,s*0.5,cy,s*0.42);
+    gg.addColorStop(0,'rgba(255,255,255,0.4)');gg.addColorStop(1,'rgba(255,255,255,0)');
+    x.save();x.translate(s*0.5,cy);x.scale(1,0.16);x.translate(-s*0.5,-cy);
+    x.fillStyle=gg;x.beginPath();x.arc(s*0.5,cy,s*0.42,0,7);x.fill();x.restore();}
+  return new T.CanvasTexture(c);}
+const T_ROAD=roadTexture(),T_BARR=concreteTexture('#d0d4d6'),T_PIER=concreteTexture('#c4c8cb'),
+      T_STEEL=steelTexture(),T_SAND=sandTexture(),T_GRASS=grassTexture(),T_WISP=wispTexture(),T_REED=reedTexture();
+const B_ROAD=roadBump(),B_CONC=concreteBump(),B_STEEL=steelBump(),T_BLOB=blobTexture(),T_FOAM=foamTexture(),T_GLOW=glowTexture();
+
+/* =============================== PATH =============================== */
+function buildPath(){
+  const cp=[
+    [0,   1.6,    0],
+    [0,   1.8,  120],
+    [-5,  2.5,  340],     // slight left off Sandy Point
+    [-5,  4.0,  620],
+    [3,   9.0,  980],     // begin sweeping right
+    [16,  20,  1300],
+    [30,  32,  1560],     // WEST TOWER  (on the curve)
+    [40,  38,  1830],     // main span peak
+    [48,  32,  2100],     // EAST TOWER
+    [52,  22,  2380],
+    [53,  19,  2650],
+    [53,  19,  2760],     // truss cage start (eastern channel)
+    [51,  20,  2960],
+    [47,  19,  3160],     // truss cage end
+    [38,  16,  3520],     // bend back to the left
+    [18,  14,  4100],
+    [-6,  12,  4800],     // long sweep left toward Kent Island
+    [-24, 10,  5500],
+    [-32, 7.5, 6100],
+    [-34, 4,   6520],
+    [-34, 1.9, 6760],
+    [-34, 1.7, 6900]
+  ].map(p=>new T.Vector3(p[0],p[1],p[2]));
+  curve=new T.CatmullRomCurve3(cp,false,'catmullrom',0.5);
+  curve.arcLengthDivisions=3000;
+  const pts=curve.getSpacedPoints(N);
+  PATH_POS=pts; PATH_CUM=[0];
+  for(let i=1;i<pts.length;i++)PATH_CUM[i]=PATH_CUM[i-1]+pts[i].distanceTo(pts[i-1]);
+  PATH_LEN=PATH_CUM[PATH_CUM.length-1];
+  for(let i=0;i<pts.length;i++){
+    const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
+    const t=new T.Vector3().subVectors(b,a).normalize();
+    PATH_TAN[i]=t; PATH_RIGHT[i]=new T.Vector3().crossVectors(t,UP).normalize();
+  }
+}
+const _p=new T.Vector3(),_t=new T.Vector3(),_r=new T.Vector3();
+function sampleAtS(s){
+  const u=Math.max(0,Math.min(1,s/PATH_LEN));
+  const f=u*N,i=Math.floor(f),g=f-i,j=Math.min(N,i+1);
+  _p.lerpVectors(PATH_POS[i],PATH_POS[j],g);
+  _t.lerpVectors(PATH_TAN[i],PATH_TAN[j],g).normalize();
+  _r.lerpVectors(PATH_RIGHT[i],PATH_RIGHT[j],g).normalize();
+  return {pos:_p,tan:_t,right:_r};
+}
+function idxAtZ(z){let best=0,bd=1e9;for(let i=0;i<=N;i++){const d=Math.abs(PATH_POS[i].z-z);if(d<bd){bd=d;best=i;}}return best;}
+
+/* =============================== RIBBONS =============================== */
+function buildDeck(ox){ox=ox||0;
+  const pos=[],uv=[],idx=[];let vc=0;const rep=1/6;
+  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const cX=P.x+R.x*ox,cZ=P.z+R.z*ox;
+    const L =new T.Vector3(cX+R.x*(-ROAD_HALF),P.y+0.02,cZ+R.z*(-ROAD_HALF));
+    const Rr=new T.Vector3(cX+R.x*( ROAD_HALF),P.y+0.02,cZ+R.z*( ROAD_HALF));
+    const v=PATH_CUM[i]*rep;
+    pos.push(L.x,L.y,L.z,Rr.x,Rr.y,Rr.z);uv.push(0,v,1,v);
+    if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;idx.push(a,cc,b,b,cc,d);}vc+=2;}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
+function buildBarrier(sign,ox){ox=ox||0;
+  const pos=[],uv=[],idx=[];let vc=0;const rep=1/4;
+  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const bx=P.x+R.x*(sign*ROAD_HALF)+R.x*ox,bz=P.z+R.z*(sign*ROAD_HALF)+R.z*ox;
+    const v=PATH_CUM[i]*rep;
+    pos.push(bx,P.y+0.02,bz,bx,P.y+BARR_H,bz);uv.push(v,0,v,1);
+    if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;if(sign<0)idx.push(a,b,cc,b,d,cc);else idx.push(a,cc,b,b,cc,d);}vc+=2;}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
+// flat dark ribbon on the water under the deck — a cheap always-visible depth cue
+function buildDeckShadow(ox){ox=ox||0;
+  // The bridge's shadow falls on the water, offset AWAY from the sun by an amount that grows
+  // with deck height -> a tall span's shadow sits far to the side (reads as "high up").
+  const sd=(typeof skyState==='function')?skyState(timeOfDay).sunDir:new T.Vector3(0.4,0.7,0.5);
+  const gdir=new T.Vector2(-sd.x,-sd.z);if(gdir.length()<0.05)gdir.set(0.35,0.3);gdir.normalize();
+  const pos=[],uv=[],idx=[];let vc=0;const rep=1/8;
+  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];if(P.y<1.6){continue;}
+    const off=Math.min(26,P.y*0.5);                  // offset grows with height (depth cue), but stays beside the bridge
+    const halfW=ROAD_HALF*1.75+3+P.y*0.10;            // wider so the long soft fade has room
+    const cX=P.x+R.x*ox+gdir.x*off, cZ=P.z+R.z*ox+gdir.y*off;
+    pos.push(cX+R.x*(-halfW),0.25,cZ+R.z*(-halfW), cX+R.x*halfW,0.25,cZ+R.z*halfW);
+    uv.push(0,PATH_CUM[i]*rep, 1,PATH_CUM[i]*rep);   // u across width -> soft-edge gradient
+    if(i<N&&PATH_POS[i+1].y>=1.6){const a=vc,b=vc+1,cc=vc+2,d=vc+3;idx.push(a,cc,b,b,cc,d);}vc+=2;}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
+// deck fascia: a downward girder face along each deck edge -> the deck reads as a THICK slab
+function buildFascia(sign,ox){ox=ox||0;const pos=[],uv=[],idx=[];let vc=0;const rep=1/3;
+  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const bx=P.x+R.x*(sign*ROAD_HALF)+R.x*ox,bz=P.z+R.z*(sign*ROAD_HALF)+R.z*ox;
+    const top=P.y+0.02, bot=Math.max(0.2,P.y-1.5);
+    const v=PATH_CUM[i]*rep;
+    pos.push(bx,top,bz, bx,bot,bz);uv.push(v,0,v,1);
+    if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;idx.push(a,cc,b,b,cc,d);}vc+=2;}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
+// dark soffit under the deck (closes the underside -> depth + implied shadow)
+function buildSoffit(ox){ox=ox||0;const pos=[],idx=[];let vc=0;const hw=ROAD_HALF-0.05;
+  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];const y=Math.max(0.25,P.y-1.45);
+    pos.push(P.x+R.x*(-hw+ox),y,P.z+R.z*(-hw+ox), P.x+R.x*(hw+ox),y,P.z+R.z*(hw+ox));
+    if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;idx.push(a,cc,b,b,cc,d);}vc+=2;}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setIndex(idx);g.computeVertexNormals();return g;}
+
+/* =============================== MATERIALS =============================== */
+const M_ROAD=new T.MeshStandardMaterial({map:T_ROAD,bumpMap:B_ROAD,bumpScale:0.03,roughness:.96,metalness:.02,side:T.DoubleSide,color:0x8b8e91});
+function shadowStripTexture(){const w=128,h=4,c=cvs(w,h),x=c.getContext('2d');
+  const g=x.createLinearGradient(0,0,w,0);
+  // long, gradual falloff into a soft (not fully-saturated) peak — reads as a real penumbra
+  g.addColorStop(0,   'rgba(6,16,22,0)');
+  g.addColorStop(0.15,'rgba(6,16,22,0.12)');
+  g.addColorStop(0.32,'rgba(6,16,22,0.38)');
+  g.addColorStop(0.5, 'rgba(6,16,22,0.72)');
+  g.addColorStop(0.68,'rgba(6,16,22,0.38)');
+  g.addColorStop(0.85,'rgba(6,16,22,0.12)');
+  g.addColorStop(1,   'rgba(6,16,22,0)');
+  x.fillStyle=g;x.fillRect(0,0,w,h);const t=new T.CanvasTexture(c);t.wrapS=T.ClampToEdgeWrapping;t.wrapT=T.RepeatWrapping;return t;}
+const T_WSHADOW=shadowStripTexture();
+const M_SHADOW=new T.MeshBasicMaterial({map:T_WSHADOW,color:0x0a141a,transparent:true,opacity:0.16,depthWrite:false,fog:true});
+const M_BARR=new T.MeshStandardMaterial({map:T_BARR,bumpMap:B_CONC,bumpScale:0.04,roughness:.9,metalness:.03,side:T.DoubleSide,color:0xd6d3c9});
+const M_PIER=new T.MeshStandardMaterial({map:T_PIER,bumpMap:B_CONC,bumpScale:0.06,roughness:.92,metalness:.03,color:0x9d9890});
+const M_STEEL=new T.MeshStandardMaterial({map:T_STEEL,bumpMap:B_STEEL,bumpScale:0.03,roughness:.62,metalness:.35});
+const M_STEELd=new T.MeshStandardMaterial({color:0xb7c0c6,roughness:.6,metalness:.4});
+const M_FASCIA=new T.MeshStandardMaterial({color:0x6c7176,roughness:.85,metalness:.08,side:T.DoubleSide});
+const M_SOFFIT=new T.MeshStandardMaterial({color:0x3f454a,roughness:.9,metalness:.05,side:T.DoubleSide});
+const M_BLOB=new T.MeshBasicMaterial({map:T_BLOB,transparent:true,depthWrite:false});
+const M_FOAM=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,depthWrite:false,fog:true});
+const M_LAMP=new T.MeshStandardMaterial({color:0x3a3d40,emissive:0xffd98a,emissiveIntensity:0,roughness:.5});
+const M_LAMPGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
+const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
+const FOAM_GEO=new T.CircleGeometry(1,20);
+const GLOW_GEO=new T.CircleGeometry(1,16);
+
+/* =============================== STRUCTURE HELPERS =============================== */
+function box(w,h,d,m){return new T.Mesh(new T.BoxGeometry(w,h,d),m);}
+function beam(a,b,thick,m){const dir=new T.Vector3().subVectors(b,a);const len=dir.length();
+  const mm=new T.Mesh(new T.BoxGeometry(thick,thick,len),m||M_STEEL);
+  mm.position.copy(a).add(b).multiplyScalar(.5);mm.lookAt(b);mm.castShadow=true;return mm;}
+function tube(a,b,r,m){const dir=new T.Vector3().subVectors(b,a);const len=dir.length();
+  const mm=new T.Mesh(new T.CylinderGeometry(r,r,len,7),m||M_STEELd);
+  mm.position.copy(a).add(b).multiplyScalar(.5);
+  mm.quaternion.setFromUnitVectors(UP,dir.clone().normalize());mm.castShadow=true;return mm;}
+
+function addPiers(ox,group,step,detail){ox=ox||0;step=step||8;detail=detail!==false;
+  for(let i=6;i<N-4;i+=step){const P=PATH_POS[i],R=PATH_RIGHT[i];if(P.y<2.0)continue;
+    const cx=P.x+R.x*ox, cz=P.z+R.z*ox, tx=cx+PATH_TAN[i].x, tz=cz+PATH_TAN[i].z;
+    const top=P.y-1.4;                                          // pier TOP sits just under the deck slab
+    if(P.y>16){
+      const base=-1.6, h=top-base, cy=(top+base)/2, w=ROAD_HALF*1.6, d=4.4;
+      const pier=box(w,h,d,M_PIER);pier.position.set(cx,cy,cz);pier.lookAt(tx,cy,tz);pier.castShadow=true;pier.receiveShadow=true;group.add(pier);
+      const bs=box(w*1.22,3.0,d*1.25,M_PIER);bs.position.set(cx,1.1,cz);bs.lookAt(tx,1.1,tz);bs.castShadow=true;group.add(bs);
+      const foam=new T.Mesh(FOAM_GEO,M_FOAM);foam.rotation.x=-Math.PI/2;foam.position.set(cx,0.16,cz);foam.scale.set(w*0.85,d*1.5,1);group.add(foam);
+    } else {
+      const r=0.95;const cols=[];const base=-0.6, h=top-base, cy=(top+base)/2;
+      for(const s of[-1,1]){
+        const px=P.x+R.x*(s*(ROAD_HALF-0.6)+ox),pz=P.z+R.z*(s*(ROAD_HALF-0.6)+ox);
+        const col=new T.Mesh(new T.CylinderGeometry(r,r*1.12,h,12),M_PIER);col.position.set(px,cy,pz);col.castShadow=true;col.receiveShadow=true;group.add(col);
+        cols.push(new T.Vector3(px,0,pz));
+        if(detail){const foot=new T.Mesh(new T.CylinderGeometry(r*1.5,r*1.7,1.3,12),M_PIER);foot.position.set(px,0.35,pz);foot.castShadow=true;group.add(foot);}
+        const foam=new T.Mesh(FOAM_GEO,M_FOAM);foam.rotation.x=-Math.PI/2;foam.position.set(px,0.16,pz);const fr=Math.max(r*3.2,2.6);foam.scale.set(fr,fr*0.9,1);group.add(foam);}
+      if(detail&&P.y>5){const ys=Math.min(top-0.5,P.y-2.6);group.add(beam(new T.Vector3(cols[0].x,ys,cols[0].z),new T.Vector3(cols[1].x,ys,cols[1].z),0.55,M_PIER));}
+    }
+    const cap=box(ROAD_HALF*2+1.4,0.7,2.0,M_PIER);cap.position.set(cx,P.y-1.85,cz);cap.lookAt(tx,P.y-1.85,tz);group.add(cap);
+  }
+}
+// massive concrete cable-anchor pier at the ends of a suspension span (see photos)
+function addAnchorPier(idx,ox,group){idx=Math.max(0,Math.min(N,idx));const P=PATH_POS[idx],R=PATH_RIGHT[idx];
+  const cx=P.x+R.x*ox,cz=P.z+R.z*ox,tx=cx+PATH_TAN[idx].x,tz=cz+PATH_TAN[idx].z;
+  const top=P.y-1.4, base=-2, h=top-base, cy=(top+base)/2;   // top sits under the deck
+  const blk=box(ROAD_HALF*2+2,h,9,M_PIER);blk.position.set(cx,cy,cz);blk.lookAt(tx,cy,tz);blk.castShadow=true;blk.receiveShadow=true;group.add(blk);
+  const bs=box((ROAD_HALF*2+2)*1.12,3.2,11,M_PIER);bs.position.set(cx,1.3,cz);bs.lookAt(tx,1.3,tz);bs.castShadow=true;group.add(bs);
+  const foam=new T.Mesh(FOAM_GEO,M_FOAM);foam.rotation.x=-Math.PI/2;foam.position.set(cx,0.16,cz);foam.scale.set(ROAD_HALF*2.4,13,1);group.add(foam);
+}
+function suspensionTower(i,ox,height,xlattice,group){ox=ox||0;
+  const P=PATH_POS[i],R=PATH_RIGHT[i];const baseY=P.y-0.2,topY=P.y+height;const legs=[];
+  for(const s of[-1,1]){
+    const bx=P.x+R.x*(s*(ROAD_HALF+0.9)+ox),bz=P.z+R.z*(s*(ROAD_HALF+0.9)+ox);
+    const foot=new T.Vector3(bx,baseY,bz);
+    const top=new T.Vector3(bx-R.x*(s*0.9),topY,bz-R.z*(s*0.9));
+    legs.push([foot,top]);group.add(beam(foot,top,1.1,M_STEELd));}
+  const steps=xlattice?7:5;
+  for(let k=1;k<=steps;k++){const f=k/(steps+1);
+    const lL=legs[0][0].clone().lerp(legs[0][1],f),lR=legs[1][0].clone().lerp(legs[1][1],f);
+    group.add(beam(lL,lR,0.5,M_STEELd));
+    if(xlattice&&k<steps){const f2=(k+1)/(steps+1);
+      const lL2=legs[0][0].clone().lerp(legs[0][1],f2),lR2=legs[1][0].clone().lerp(legs[1][1],f2);
+      group.add(beam(lL,lR2,0.32,M_STEELd));group.add(beam(lR,lL2,0.32,M_STEELd));}}
+  return {topL:legs[0][1],topR:legs[1][1]};
+}
+function suspensionCables(t1,t2,i1,i2,ox,group){ox=ox||0;
+  const cm=new T.MeshStandardMaterial({color:0xe4ebef,roughness:.45,metalness:.45});
+  // deck-edge point on THIS span/side at a given station (for hangers + backstay anchors)
+  const edge=(idx,sign)=>{const ii=Math.max(0,Math.min(N,idx));const P=PATH_POS[ii],R=PATH_RIGHT[ii];
+    return new T.Vector3(P.x+R.x*(sign*(ROAD_HALF-0.2)+ox),P.y+BARR_H,P.z+R.z*(sign*(ROAD_HALF-0.2)+ox));};
+  for(const side of['L','R']){
+    const sign=side==='L'?-1:1;
+    const a=side==='L'?t1.topL:t1.topR,b=side==='L'?t2.topL:t2.topR;
+    // main cable: smooth catenary drape between the two tower tops on THIS side (parallel to road)
+    const sag=11,segs=34;let last=null;
+    for(let k=0;k<=segs;k++){const f=k/segs;
+      const p=new T.Vector3().lerpVectors(a,b,f);p.y-=Math.sin(f*Math.PI)*sag;
+      if(last)group.add(tube(last,p,0.16,cm));last=p.clone();
+      if(f>0.03&&f<0.97){                                   // vertical hanger straight down to the deck edge
+        const ii=Math.round(i1+(i2-i1)*f);const P=PATH_POS[ii],R=PATH_RIGHT[ii];
+        const dp=new T.Vector3(P.x+R.x*(sign*(ROAD_HALF-0.2)+ox),P.y+BARR_H,P.z+R.z*(sign*(ROAD_HALF-0.2)+ox));
+        group.add(tube(new T.Vector3(p.x,p.y,p.z),dp,0.04,cm));}}
+    // backstays: continue each tower-top cable down to a deck-edge anchor on the SAME span & side
+    group.add(tube(a,edge(i1-24,sign),0.15,cm));
+    group.add(tube(b,edge(i2+24,sign),0.15,cm));
+  }
+}
+// characteristic tall light standards along the median (left) barrier
+function addLightPoles(ox,group){
+  const poleMat=new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4});
+  for(let i=8;i<N-4;i+=18){const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const s=-1; // left barrier / median side
+    const bx=P.x+R.x*(s*(ROAD_HALF-0.1)+ox), bz=P.z+R.z*(s*(ROAD_HALF-0.1)+ox);
+    const pole=new T.Mesh(new T.CylinderGeometry(0.16,0.22,9,7),poleMat);
+    pole.position.set(bx,P.y+4.5,bz);pole.castShadow=true;group.add(pole);
+    const arm=box(0.14,0.14,2.2,poleMat);arm.position.set(bx-R.x*s*1.0,P.y+8.9,bz-R.z*s*1.0);
+    arm.lookAt(bx-R.x*s*3,P.y+8.9,bz-R.z*s*3);group.add(arm);
+    const lx=bx-R.x*s*1.9, lz=bz-R.z*s*1.9;
+    const lamp=box(0.5,0.2,0.9,M_LAMP);lamp.position.set(lx,P.y+8.8,lz);group.add(lamp);
+    // warm pool of light thrown on the road (fades in at night)
+    const pool=new T.Mesh(GLOW_GEO,M_LAMPGLOW);pool.rotation.x=-Math.PI/2;
+    pool.position.set(P.x+R.x*ox,P.y+0.09,P.z+R.z*ox);pool.scale.set(7,9,1);group.add(pool);
+  }
+}
+// flush expansion-joint lines across the deck (detail, sits on the road surface)
+function addExpansionJoints(ox,group){
+  const jm=new T.MeshStandardMaterial({color:0x23262a,roughness:1,metalness:0});   // matte (no sky glare)
+  for(let i=20;i<N-4;i+=160){const P=PATH_POS[i],R=PATH_RIGHT[i];              // ~10% as often
+    const j=box(ROAD_HALF*2,0.05,0.3,jm);
+    j.position.set(P.x+R.x*ox,P.y+0.05,P.z+R.z*ox);
+    j.lookAt(P.x+R.x*ox+PATH_TAN[i].x,P.y+0.05,P.z+R.z*ox+PATH_TAN[i].z);group.add(j);}
+}
+// metal pipe railing atop the edge barriers (open rails + posts) — matches the photos
+function addRailing(ox,group){ox=ox||0;
+  const rm=new T.MeshStandardMaterial({color:0xd9dde0,roughness:.5,metalness:.55,side:T.DoubleSide});
+  for(const sign of[-1,1]){
+    for(const ry of[BARR_H+0.32,BARR_H+0.66]){
+      const pos=[],idx=[];let vc=0;
+      for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];
+        const bx=P.x+R.x*(sign*(ROAD_HALF+0.05)+ox),bz=P.z+R.z*(sign*(ROAD_HALF+0.05)+ox);
+        pos.push(bx,P.y+ry-0.045,bz, bx,P.y+ry+0.045,bz);
+        if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;if(sign<0)idx.push(a,b,cc,b,d,cc);else idx.push(a,cc,b,b,cc,d);}vc+=2;}
+      const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setIndex(idx);g.computeVertexNormals();
+      group.add(new T.Mesh(g,rm));
+    }
+    for(let i=6;i<N-2;i+=13){const P=PATH_POS[i],R=PATH_RIGHT[i];
+      const bx=P.x+R.x*(sign*(ROAD_HALF+0.05)+ox),bz=P.z+R.z*(sign*(ROAD_HALF+0.05)+ox);
+      const post=box(0.08,0.78,0.08,rm);post.position.set(bx,P.y+BARR_H+0.36,bz);group.add(post);}
+  }
+}
+// through-truss "cage" — NO members cross the driving surface. Overhead + side lattice only.
+function trussCage(iStart,iEnd,ox,group,dense){ox=ox||0;
+  const topY=6.6;
+  let prev=null;
+  for(let i=iStart;i<=iEnd;i+=2){const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const lx=P.x+R.x*(-(ROAD_HALF+0.5)+ox),lz=P.z+R.z*(-(ROAD_HALF+0.5)+ox);
+    const rx=P.x+R.x*((ROAD_HALF+0.5)+ox),rz=P.z+R.z*((ROAD_HALF+0.5)+ox);
+    const bl=new T.Vector3(lx,P.y+0.3,lz), br=new T.Vector3(rx,P.y+0.3,rz);
+    const tl=new T.Vector3(lx,P.y+topY,lz), tr=new T.Vector3(rx,P.y+topY,rz);
+    group.add(beam(bl,tl,0.3));group.add(beam(br,tr,0.3));   // side posts (portal frame, at road edge)
+    group.add(beam(tl,tr,0.32));                              // overhead top cross (above clearance)
+    if(prev){
+      group.add(beam(prev.tl,tl,0.26));group.add(beam(prev.tr,tr,0.26)); // top chords
+      group.add(beam(prev.bl,bl,0.22));group.add(beam(prev.br,br,0.22)); // bottom chords
+      // side-wall X-bracing (vertical plane of each wall — never across the road)
+      group.add(beam(prev.bl,tl,0.16));group.add(beam(bl,prev.tl,0.16));
+      group.add(beam(prev.br,tr,0.16));group.add(beam(br,prev.tr,0.16));
+      // overhead X-bracing (high above the roadway)
+      group.add(beam(prev.tl,tr,0.13));if(dense)group.add(beam(prev.tr,tl,0.13));
+    }
+    prev={tl,tr,bl,br};
+  }
+}
+function deckTruss(iStart,iEnd,ox,group){ox=ox||0;
+  for(let i=iStart;i<iEnd;i+=4){const P=PATH_POS[i],R=PATH_RIGHT[i],P2=PATH_POS[Math.min(N,i+4)];
+    for(const s of[-1,1]){
+      const a=new T.Vector3(P.x+R.x*(s*ROAD_HALF+ox),P.y-0.2,P.z+R.z*(s*ROAD_HALF+ox));
+      const b=new T.Vector3(P.x+R.x*(s*ROAD_HALF+ox),P.y-2.8,P.z+R.z*(s*ROAD_HALF+ox));
+      const c=new T.Vector3(P2.x+R.x*(s*ROAD_HALF+ox),P2.y-0.2,P2.z+R.z*(s*ROAD_HALF+ox));
+      group.add(beam(a,b,0.22));group.add(beam(b,c,0.18));}}
+}
+function signTex(lines,bg,fg,fs){const c=cvs(128,128),x=c.getContext('2d');
+  x.fillStyle=bg;x.fillRect(0,0,128,128);x.fillStyle=fg;x.textAlign='center';x.textBaseline='middle';
+  x.font='bold '+(fs||20)+'px sans-serif';
+  const n=lines.length;lines.forEach((ln,i)=>x.fillText(ln,64,64+(i-(n-1)/2)*(fs||20)*1.15));
+  const t=new T.CanvasTexture(c);t.anisotropy=4;return t;}
+function gantry(i,type,group){const P=PATH_POS[i],R=PATH_RIGHT[i],Tn=PATH_TAN[i];
+  const g=new T.Group();const half=ROAD_HALF+1.3,postTop=P.y+5.2,archH=2.4;
+  // posts
+  for(const s of[-1,1]){const px=P.x+R.x*(s*half),pz=P.z+R.z*(s*half);
+    const post=new T.Mesh(new T.CylinderGeometry(0.22,0.28,5.2,8),M_STEELd);post.position.set(px,P.y+2.6,pz);post.castShadow=true;g.add(post);
+    // SPEED LIMIT 50 sign on each post
+    const sl=new T.Mesh(new T.PlaneGeometry(1.1,1.4),new T.MeshBasicMaterial({map:signTex(['SPEED','LIMIT','50'],'#f2f2ee','#111',22),side:T.DoubleSide}));
+    sl.position.set(px,P.y+3.4,pz);sl.lookAt(px-Tn.x,P.y+3.4,pz-Tn.z);g.add(sl);}
+  // arched top (parabola across span)
+  const segs=12;let prev=null;
+  for(let k=0;k<=segs;k++){const f=k/segs,lat=(f*2-1)*half,y=postTop+Math.sin(f*Math.PI)*archH;
+    const p=new T.Vector3(P.x+R.x*lat,y,P.z+R.z*lat);if(prev)g.add(tube(prev,p,0.15,M_STEELd));prev=p.clone();}
+  // signal heads + text panels hung below the arch, over each lane
+  const panelMat=new T.MeshStandardMaterial({color:0x141618,roughness:.6});
+  const arrowMat=new T.MeshBasicMaterial({map:signTex(['↓'],'#101314','#39e05a',80)});
+  const xMat=new T.MeshBasicMaterial({map:signTex(['✕'],'#101314','#ff4438',72)});
+  const obey=new T.MeshBasicMaterial({map:signTex(['OBEY','LANE','SIGNALS'],'#e9e9e4','#111',18),side:T.DoubleSide});
+  const heads=[[-2.6,type==='x'?'x':'a'],[0,'obey'],[2.6,type==='x'?'a':'a']];
+  heads.forEach(([o,kind])=>{const cx=P.x+R.x*o,cz=P.z+R.z*o,hy=postTop-0.3;
+    const bracket=box(0.12,0.9,0.12,M_STEELd);bracket.position.set(cx,postTop+0.4,cz);g.add(bracket);
+    const bk=box(1.35,1.35,0.18,panelMat);bk.position.set(cx,hy,cz);bk.lookAt(cx-Tn.x,hy,cz-Tn.z);g.add(bk);
+    let face;
+    if(kind==='obey')face=new T.Mesh(new T.PlaneGeometry(1.15,1.15),obey);
+    else face=new T.Mesh(new T.PlaneGeometry(1.05,1.05),kind==='x'?xMat:arrowMat);
+    face.position.set(cx-Tn.x*0.12,hy,cz-Tn.z*0.12);face.lookAt(cx-Tn.x*2,hy,cz-Tn.z*2);g.add(face);});
+  group.add(g);}
+function makeTree(x,z,sc){const g=new T.Group();
+  const tr=box(0.4*sc,1.6*sc,0.4*sc,new T.MeshStandardMaterial({color:0x6a5236,roughness:.9}));tr.position.y=0.8*sc;g.add(tr);
+  const fm=new T.MeshStandardMaterial({color:0x5c7a48,roughness:.95});
+  for(let k=0;k<3;k++){const b=new T.Mesh(new T.SphereGeometry((1.1-k*0.18)*sc,7,6),fm);
+    b.position.y=(1.7+k*0.7)*sc;b.position.x=(Math.random()-.5)*0.4;b.castShadow=true;g.add(b);}
+  g.position.set(x,0,z);return g;}
+const M_REED=new T.MeshStandardMaterial({map:T_REED,transparent:true,alphaTest:0.4,side:T.DoubleSide,roughness:1});
+// Shared reed materials — created ONCE and reused, or a naive setup makes thousands of draw calls
+const M_REED_BASE=[
+  new T.MeshStandardMaterial({color:0xa8ac6f,roughness:1,side:T.DoubleSide}),
+  new T.MeshStandardMaterial({color:0x8b9761,roughness:1,side:T.DoubleSide}),
+  new T.MeshStandardMaterial({color:0xbdb680,roughness:1,side:T.DoubleSide}),
+  new T.MeshStandardMaterial({color:0x9ba669,roughness:1,side:T.DoubleSide})
+];
+const M_REED_SEED=new T.MeshStandardMaterial({color:0xd8c98a,roughness:1,side:T.DoubleSide});
+function makeReeds(x,z,sc){sc=sc||1;const g=new T.Group();
+  // Dense clump of individual thin stalks — no more crossed-plane billboards.
+  const stalkN=7+Math.floor(Math.random()*5);
+  const clumpR=1.5*sc;
+  for(let k=0;k<stalkN;k++){
+    const h=(0.9+Math.random()*1.1)*sc;
+    const stalk=new T.Mesh(new T.PlaneGeometry(0.06*sc,h), M_REED_BASE[k&3]);
+    const a=Math.random()*Math.PI*2, r=Math.random()*clumpR;
+    stalk.position.set(Math.cos(a)*r, h*0.5, Math.sin(a)*r);
+    stalk.rotation.y=Math.random()*Math.PI;
+    stalk.rotation.z=(Math.random()-0.5)*0.18;
+    g.add(stalk);
+  }
+  // A couple of taller feathery seed-heads for silhouette variation
+  for(let k=0;k<2;k++){
+    const h=(1.6+Math.random()*0.9)*sc;
+    const stalk=new T.Mesh(new T.PlaneGeometry(0.09*sc,h), M_REED_SEED);
+    const a=Math.random()*Math.PI*2, r=Math.random()*clumpR*0.7;
+    stalk.position.set(Math.cos(a)*r, h*0.5, Math.sin(a)*r);
+    stalk.rotation.y=Math.random()*Math.PI;
+    stalk.rotation.z=(Math.random()-0.5)*0.14;
+    g.add(stalk);
+  }
+  g.position.set(x,0.05,z);return g;}
+function buildMarina(cx,cz,rot){const g=new T.Group();
+  const white=new T.MeshStandardMaterial({color:0xf2f5f6,roughness:.8});
+  const blue=new T.MeshStandardMaterial({color:0x2f6fb0,roughness:.7});
+  const navy=new T.MeshStandardMaterial({color:0x22405f,roughness:.7});
+  const metal=new T.MeshStandardMaterial({color:0xb7c0c6,roughness:.5,metalness:.4});
+  const glass=new T.MeshStandardMaterial({color:0x2a3d47,roughness:.2,metalness:.6});
+  const red=new T.MeshStandardMaterial({color:0xc23227,roughness:.55,emissive:0x5a1009,emissiveIntensity:.35});
+  const tentM=new T.MeshStandardMaterial({color:0xf7f9fa,roughness:.9,side:T.DoubleSide});
+  // main mass: white with blue skirt + upper glass band + metal roof
+  const b1=box(26,8,15,white);b1.position.set(0,4,0);g.add(b1);
+  const skirt=box(26.3,1.6,15.3,blue);skirt.position.set(0,1.0,0);g.add(skirt);
+  const band=box(26.3,1.5,15.3,glass);band.position.set(0,5.6,0);g.add(band);
+  const roof=box(27,0.7,16,metal);roof.position.set(0,8.4,0);g.add(roof);
+  // central cupola + white pyramid roof + red LIBBEY'S sign band on the front
+  const cup=box(7,5,7,blue);cup.position.set(0,10.6,0);g.add(cup);
+  const cupR=new T.Mesh(new T.ConeGeometry(1,2.6,4),metal);cupR.rotation.y=Math.PI/4;cupR.position.set(0,14.4,0);cupR.scale.set(5.4,1,5.4);g.add(cupR);
+  const sign=box(11,2,0.5,red);sign.position.set(0,6.9,7.8);g.add(sign);
+  // octagon gazebo wing on the right
+  const wing=new T.Mesh(new T.CylinderGeometry(4.5,4.5,4,8),white);wing.position.set(16,2,4);g.add(wing);
+  const wingR=new T.Mesh(new T.ConeGeometry(5.2,2.4,8),metal);wingR.position.set(16,5.2,4);g.add(wingR);
+  // big WHITE fabric tent over the outdoor deck (angular peaks)
+  for(let k=0;k<3;k++){const peak=new T.Mesh(new T.ConeGeometry(5,2,4),tentM);peak.rotation.y=Math.PI/4;peak.position.set(-12+k*6.5,3.4,13);g.add(peak);}
+  // patio + a few chairs
+  const patio=box(22,0.3,11,new T.MeshStandardMaterial({color:0x9aa876,roughness:1}));patio.position.set(-3,0.32,14);g.add(patio);
+  for(let k=0;k<8;k++){const ch=box(0.6,0.6,0.6,k%2?blue:white);ch.position.set(-12+Math.random()*20,0.65,11+Math.random()*6);g.add(ch);}
+  // dock with pilings — on the WATER side (+Z), same side as the sign/patio/tent.
+  // After the marina is rotated so +Z faces the water, this dock extends into the water.
+  const pier=box(3.4,0.35,28,new T.MeshStandardMaterial({color:0xb59a6a,roughness:.85}));pier.position.set(0,0.55,22);g.add(pier);
+  for(let k=0;k<7;k++)for(const sx of[-1,1]){const pl=new T.Mesh(new T.CylinderGeometry(0.18,0.22,2.4,6),navy);pl.position.set(sx*1.6,0.5,10+k*4);g.add(pl);}
+  // Cross-planks on top of the pier for wooden look
+  for(let k=0;k<12;k++){const plank=box(3.2,0.05,0.5,new T.MeshStandardMaterial({color:0x9d8258,roughness:.9}));plank.position.set(0,0.73,10+k*2.2);g.add(plank);}
+  // Dock cleats + a couple of moored small skiffs at the pier end
+  for(let k=0;k<3;k++){const skiff=box(1.6,0.6,4.2,new T.MeshStandardMaterial({color:k%2?0xd5d0c0:0xe8e2d2,roughness:.75}));skiff.position.set(2.4+k*0.2,0.6,14+k*7);skiff.rotation.y=0.05*(k-1);g.add(skiff);}
+  g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  g.position.set(cx,0,cz);g.rotation.y=rot;return g;}
+
+function makeHouse(wallC,roofC){const g=new T.Group();
+  const w=6+Math.random()*5, d=6+Math.random()*4, h=3+Math.random()*1.4;
+  const body=box(w,h,d,new T.MeshStandardMaterial({color:wallC,roughness:.85}));body.position.y=h/2;body.castShadow=true;body.receiveShadow=true;g.add(body);
+  const roof=new T.Mesh(new T.ConeGeometry(1,1.8,4),new T.MeshStandardMaterial({color:roofC,roughness:.85}));
+  roof.rotation.y=Math.PI/4;roof.position.y=h+0.9;roof.scale.set(w*0.62,1,d*0.62);roof.castShadow=true;g.add(roof);
+  const door=box(1,1.9,0.12,new T.MeshStandardMaterial({color:0x46351f,roughness:.7}));door.position.set(w*0.12,0.95,d/2+0.02);g.add(door);
+  for(const sx of[-1,1]){const win=box(1.1,1,0.1,new T.MeshStandardMaterial({color:0x243943,roughness:.25,metalness:.5}));win.position.set(sx*w*0.3,h*0.55,d/2+0.03);g.add(win);}
+  const step=box(w*0.5,0.3,1.2,new T.MeshStandardMaterial({color:0xbdb4a4,roughness:.9}));step.position.set(w*0.12,0.15,d/2+0.6);g.add(step);
+  return g;}
+// Kent Island: US-50/301 divided highway continues past the bridge to the horizon (work zone + marina)
+function buildKentIsland(group){
+  const eP=PATH_POS[N].clone(); const eT=PATH_TAN[N].clone();eT.y=0;eT.normalize();
+  const eR=PATH_RIGHT[N].clone();eR.y=0;eR.normalize();
+  const HALF=ROAD_HALF, roadY=0.3, L=2400, OFF=-44, startY=eP.y;
+  const at=(off,d,y)=>new T.Vector3(eP.x+eR.x*off+eT.x*d, y===undefined?roadY:y, eP.z+eR.z*off+eT.z*d);
+  function ribbon(offL,offR,y0,mat,rec){const pos=[],uv=[],idx=[];let vc=0;const rep=1/6,steps=110;
+    for(let k=0;k<=steps;k++){const f=k/steps,d=f*L;const y=(f<0.045)?startY+(y0-startY)*(f/0.045):y0;
+      pos.push(eP.x+eR.x*offL+eT.x*d,y+0.02,eP.z+eR.z*offL+eT.z*d, eP.x+eR.x*offR+eT.x*d,y+0.02,eP.z+eR.z*offR+eT.z*d);
+      uv.push(0,d*rep,1,d*rep);
+      if(k<steps){const a=vc,b=vc+1,cc=vc+2,dd=vc+3;idx.push(a,cc,b,b,cc,dd);}vc+=2;}
+    const gg=new T.BufferGeometry();gg.setAttribute('position',new T.Float32BufferAttribute(pos,3));gg.setAttribute('uv',new T.Float32BufferAttribute(uv,2));gg.setIndex(idx);gg.computeVertexNormals();
+    const m=new T.Mesh(gg,mat);if(rec)m.receiveShadow=true;group.add(m);return m;}
+  // ===== GRASS GROUND PLANE with MARINA INLET CUTOUT =====
+  // Rear edge at the bridge end. A rectangular hole is cut where the marina inlet is,
+  // so the actual bay water (waterMesh at y=0) shows THROUGH — same waves, same dynamic
+  // color as the bay. The inlet reaches back to the bridge end so it visually merges
+  // with the open water on both sides of the deck.
+  const gmid=eP.clone().addScaledVector(eT, 3000);
+  // The mesh will be positioned at (gmid.x, 0.03, gmid.z) and rotated -π/2 around X.
+  // After rotation: local +X → world +X ; local +Y → world -Z
+  // So a world point (wx, wz) has local (wx - gmid.x, gmid.z - wz).
+  // Inlet spans world X in [-134, -14], world Z in [6890, 7130]
+  //   (extends back to z=6890, PAST bridge end at 6900, so it overlaps bay water for visual continuity).
+  const gShape=new T.Shape();
+  gShape.moveTo(-3000,-3000);gShape.lineTo(3000,-3000);gShape.lineTo(3000,3000);gShape.lineTo(-3000,3000);gShape.closePath();
+  // Convert world inlet bounds to local shape coords:
+  //   lx = worldX - gmid.x    ly = gmid.z - worldZ
+  const inletX0=-134, inletX1=-14, inletZ0=6890, inletZ1=7130;
+  const hLX0=inletX0-gmid.x, hLX1=inletX1-gmid.x;   // local X of hole
+  const hLY0=gmid.z-inletZ1, hLY1=gmid.z-inletZ0;   // local Y of hole (Z is flipped)
+  const hole=new T.Path();
+  hole.moveTo(hLX0,hLY0);hole.lineTo(hLX1,hLY0);hole.lineTo(hLX1,hLY1);hole.lineTo(hLX0,hLY1);hole.closePath();
+  gShape.holes.push(hole);
+  const gGeo=new T.ShapeGeometry(gShape);
+  // Fix UVs so the grass texture tiles at the same scale as a PlaneGeometry(6000,6000) would
+  const _uv=gGeo.attributes.uv, _p=gGeo.attributes.position;
+  const uvScale=40/6000; // 40 texture repeats across 6000m plane
+  for(let i=0;i<_uv.count;i++){_uv.setXY(i, _p.getX(i)*uvScale, _p.getY(i)*uvScale);}
+  _uv.needsUpdate=true;
+  const ground=new T.Mesh(gGeo, new T.MeshStandardMaterial({map:T_GRASS,roughness:1}));
+  ground.rotation.x=-Math.PI/2;
+  ground.position.set(gmid.x, 0.03, gmid.z);
+  ground.receiveShadow=true;
+  group.add(ground);
+  // ===== SAND BEACH on the far (marina) shore of the inlet — sits on top of grass at inlet edge =====
+  const sandCenter=at(HALF+100, 115);
+  const sand=new T.Mesh(new T.PlaneGeometry(30, 240), new T.MeshStandardMaterial({map:T_SAND,roughness:1}));
+  sand.rotation.x=-Math.PI/2;sand.position.set(sandCenter.x, 0.06, sandCenter.z);group.add(sand);
+  // === Both carriageways ===
+  ribbon(-HALF, HALF, roadY, M_ROAD, true);
+  ribbon(OFF-HALF, OFF+HALF, roadY, M_ROAD, true);
+  // === Continuous Jersey-style barriers, both carriageways full length ===
+  // Ribbon-based so the barrier Y follows the road descent from startY (bridge deck height) → roadY.
+  // Starts 5m BEFORE the bridge end so it overlaps the bridge barrier (buildBarrier ends at station N),
+  // eliminating the visible gap at the touchdown.
+  function sideBarrier(offCenter){
+    const pos=[],idx=[];let vc=0;
+    const steps=60, startD=-5, endD=L+5;
+    for(let k=0;k<=steps;k++){
+      const f=k/steps, d=startD+f*(endD-startD);
+      const fL=Math.max(0, d/L);
+      const yRoad=(fL<0.045)? startY+(roadY-startY)*(fL/0.045) : roadY;
+      const p=at(offCenter, d, yRoad);
+      pos.push(p.x, yRoad+0.02, p.z,   p.x, yRoad+0.87, p.z);
+      if(k<steps){const a=vc,b=vc+1,c=vc+2,dd=vc+3;idx.push(a,c,b,b,c,dd);}
+      vc+=2;
+    }
+    const g=new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(pos,3));
+    g.setIndex(idx); g.computeVertexNormals();
+    const m=new T.Mesh(g, M_BARR);
+    m.castShadow=true; m.receiveShadow=true;
+    group.add(m);
+  }
+  sideBarrier(HALF);sideBarrier(-HALF);              // main span edges, matching bridge barrier offsets
+  sideBarrier(OFF+HALF);sideBarrier(OFF-HALF);       // twin span edges
+  sideBarrier(OFF/2);                                // median
+  // === Construction barrels ===
+  const rm=new T.MeshStandardMaterial({color:0xc9ced2,roughness:.5,metalness:.5,side:T.DoubleSide});
+  function barrel(x,z){const b=new T.Group();
+    const body=new T.Mesh(new T.CylinderGeometry(0.34,0.4,1.1,8),new T.MeshStandardMaterial({color:0xe8641c,roughness:.85}));body.position.y=0.55;b.add(body);
+    const st=new T.Mesh(new T.CylinderGeometry(0.42,0.42,0.18,8),new T.MeshStandardMaterial({color:0xf4f4f2,roughness:.85}));st.position.y=0.62;b.add(st);
+    b.position.set(x,roadY,z);b.children.forEach(o=>o.castShadow=true);return b;}
+  for(let d=20; d<500; d+=15){let p=at(OFF/2,d);group.add(barrel(p.x,p.z));p=at(HALF+3,d+6);group.add(barrel(p.x,p.z));}
+  // === Overhead green exit signs ===
+  function greenG(d){const c0=at(0,d),sy=roadY+7.2;
+    for(const s of[-1,1]){const p0=at(s*(HALF+1.8),d);const pp=box(0.34,7.4,0.34,rm);pp.position.set(p0.x,roadY+3.7,p0.z);group.add(pp);}
+    const span=box(HALF*2+5,0.45,0.45,rm);span.position.set(c0.x,sy,c0.z);span.lookAt(c0.x+eR.x,sy,c0.z+eR.z);group.add(span);
+    const pc=at(HALF*0.35,d);const panel=box(6,2.3,0.25,new T.MeshStandardMaterial({color:0x1f6b3a,roughness:.6}));panel.position.set(pc.x,sy-0.6,pc.z);panel.lookAt(pc.x-eT.x,sy-0.6,pc.z-eT.z);panel.castShadow=true;group.add(panel);}
+  greenG(70);greenG(420);
+  // === Streetlights ===
+  for(let d=140; d<L-120; d+=200){const p=at(OFF/2,d),a2=at(OFF/2+3,d);
+    const pole=new T.Mesh(new T.CylinderGeometry(0.13,0.18,9,6),new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4}));pole.position.set(p.x,roadY+4.5,p.z);pole.castShadow=true;group.add(pole);
+    const lamp=box(0.5,0.2,0.9,M_LAMP);lamp.position.set(a2.x,roadY+8.8,a2.z);group.add(lamp);}
+  // === RIP-RAP ROCKS along the inlet shore ===
+  const rockMats=[
+    new T.MeshStandardMaterial({color:0x525450,roughness:.98}),
+    new T.MeshStandardMaterial({color:0x6c6f68,roughness:.98}),
+    new T.MeshStandardMaterial({color:0x484b46,roughness:.98}),
+    new T.MeshStandardMaterial({color:0x7a7d76,roughness:.98})];
+  for(let d=12; d<220; d+=3){
+    const off=HALF+12+Math.random()*3;
+    const p=at(off, d+(Math.random()-0.5)*2);
+    const rockH=0.4+Math.random()*0.9;
+    const rockW=0.55+Math.random()*1.0;
+    const rock=new T.Mesh(new T.IcosahedronGeometry(rockW*0.65,0), rockMats[Math.floor(Math.random()*4)]);
+    rock.scale.set(1, rockH/(rockW*0.65), 1);
+    rock.position.set(p.x, rockH*0.4, p.z);
+    rock.rotation.set(Math.random()*0.5, Math.random()*Math.PI*2, Math.random()*0.5);
+    rock.castShadow=true; group.add(rock);
+  }
+  // === LIBBEY'S MARINA — on the far shore of the inlet ===
+  const mx=at(HALF+100, 110), mrot=Math.atan2(-eR.x,-eR.z);
+  group.add(buildMarina(mx.x, mx.z, mrot));
+  // === Boats moored in the inlet ===
+  for(let k=0;k<4;k++){
+    const mb=makeBoat(k%2?'sail':'motor');
+    const p=at(HALF+30+k*12, 40+k*35);
+    mb.group.position.set(p.x, 0, p.z);
+    mb.group.rotation.y=Math.atan2(eT.x, eT.z)+(Math.random()-0.5)*0.4;
+    group.add(mb.group);
+  }
+  // === REEDS along the Kent Island shorelines ===
+  for(let d=2; d<15; d+=1.4){
+    for(let jj=0;jj<2;jj++){
+      const off=HALF+3+Math.random()*8;
+      const p=at(off, d+(Math.random()-0.5)*1.5);
+      group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.6));
+    }
+  }
+  for(let d=222; d<260; d+=1.6){
+    const off=HALF+3+Math.random()*8;
+    const p=at(off, d+(Math.random()-0.5)*1.5);
+    group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.6));
+  }
+  for(let d=2; d<260; d+=1.8){
+    const p1=at(OFF-HALF-3-Math.random()*8, d+(Math.random()-0.5)*1.5);
+    group.add(makeReeds(p1.x, p1.z, 0.9+Math.random()*0.6));
+    if(Math.random()<0.7){const p2=at(OFF/2+(Math.random()-0.5)*20, d+(Math.random()-0.5)*1.5);
+      group.add(makeReeds(p2.x, p2.z, 0.7+Math.random()*0.5));}
+  }
+  for(let k=0;k<50;k++){
+    const d=8+Math.random()*250;
+    const side=Math.random()<0.5 ? -1 : 1;
+    const off=(side<0 ? OFF-HALF-8-Math.random()*20 : HALF+8+Math.random()*20);
+    if(side>0 && d>15 && d<220 && off<HALF+90) continue;
+    const p=at(off, d);
+    group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.7));
+  }
+  // === DENSE TREES — both sides, 5 rows + intermediate + deep scatter ===
+  for(let d=15; d<L; d+=8){
+    const lJ=(Math.random()-0.5)*6;
+    const pL=at(OFF-HALF-14-Math.random()*8, d+lJ);
+    group.add(makeTree(pL.x, pL.z, 1.3+Math.random()*0.9));
+    const inInlet = d>=15 && d<=220;
+    const inMarinaBldg = d>=95 && d<=140;
+    if(inMarinaBldg) continue;
+    const rOff = inInlet ? (HALF+110+Math.random()*10) : (HALF+14+Math.random()*7);
+    const pR=at(rOff, d+(Math.random()-0.5)*6);
+    group.add(makeTree(pR.x, pR.z, 1.3+Math.random()*0.9));
+  }
+  // Intermediate row (interleaved between front row for extra density)
+  for(let d=20; d<L; d+=10){
+    if(Math.random()<0.35) continue;
+    const lJ=(Math.random()-0.5)*8;
+    const pL=at(OFF-HALF-24-Math.random()*10, d+lJ);
+    group.add(makeTree(pL.x, pL.z, 1.3+Math.random()*1.0));
+    const inMarinaBldg = d>=95 && d<=140;
+    const inInlet = d>=15 && d<=220;
+    if(inMarinaBldg) continue;
+    const rOff = inInlet ? (HALF+120+Math.random()*15) : (HALF+22+Math.random()*10);
+    const pR=at(rOff, d+(Math.random()-0.5)*8);
+    group.add(makeTree(pR.x, pR.z, 1.3+Math.random()*1.0));
+  }
+  for(let d=22; d<L; d+=14){
+    for(const sideSign of [-1, 1]){
+      if(sideSign>0 && d>=90 && d<=145) continue;
+      if(Math.random()<0.15) continue;
+      const baseOff = 38+Math.random()*14;
+      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
+      const p=at(off, d+(Math.random()-0.5)*10);
+      group.add(makeTree(p.x, p.z, 1.4+Math.random()*1.0));
+    }
+  }
+  for(let d=35; d<L; d+=18){
+    for(const sideSign of [-1, 1]){
+      if(Math.random()<0.2) continue;
+      const baseOff = 80+Math.random()*38;
+      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
+      const p=at(off, d+(Math.random()-0.5)*18);
+      group.add(makeTree(p.x, p.z, 1.6+Math.random()*1.1));
+    }
+  }
+  for(let d=45; d<L; d+=22){
+    for(const sideSign of [-1, 1]){
+      if(Math.random()<0.25) continue;
+      const baseOff = 140+Math.random()*60;
+      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
+      const p=at(off, d+(Math.random()-0.5)*22);
+      group.add(makeTree(p.x, p.z, 1.7+Math.random()*1.2));
+    }
+  }
+  for(let k=0;k<320;k++){
+    const d = 20+Math.random()*(L-40);
+    const sideSign = Math.random()<0.5 ? -1 : 1;
+    const baseOff = 210+Math.random()*900;
+    const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
+    const p=at(off, d);
+    group.add(makeTree(p.x, p.z, 1.5+Math.random()*1.3));
+  }
+  // === EXTRA FRONT-ROW TREES (fills bare spots near road, alternates rows) ===
+  for(let d=18; d<L; d+=8){
+    if(Math.random()<0.35) continue;
+    const lJ=(Math.random()-0.5)*6;
+    const pL=at(OFF-HALF-8-Math.random()*4, d+lJ);
+    group.add(makeTree(pL.x, pL.z, 1.1+Math.random()*0.7));
+    // right (skip inlet + marina area)
+    const inInlet = d>=15 && d<=220;
+    const inMarinaBldg = d>=95 && d<=140;
+    if(inMarinaBldg) continue;
+    const rOff = inInlet ? (HALF+130+Math.random()*8) : (HALF+8+Math.random()*4);
+    if(Math.random()<0.4){const pR=at(rOff, d+(Math.random()-0.5)*6);
+      group.add(makeTree(pR.x, pR.z, 1.1+Math.random()*0.7));}
+  }
+  // === NEIGHBORHOOD — Stevensville houses on Kent Island, mid-distance both sides ===
+  const wallCols=[0xd8ccb0, 0xc4b48a, 0xe6dccb, 0xa89574, 0xd6c7a5, 0xbfae8e, 0xece2cc, 0x9c8664];
+  const roofCols=[0x5b4a3a, 0x4a3d2f, 0x6b5541, 0x3d3226, 0x5a4638, 0x2f2820];
+  for(let d=180; d<L; d+=42){
+    // LEFT side neighborhood — beyond twin span
+    if(Math.random()<0.7){
+      const h=makeHouse(wallCols[Math.floor(Math.random()*wallCols.length)], roofCols[Math.floor(Math.random()*roofCols.length)]);
+      const off=OFF-HALF-55-Math.random()*90;
+      const p=at(off, d+(Math.random()-0.5)*24);
+      h.position.set(p.x, 0, p.z);
+      h.rotation.y=Math.atan2(eR.x, eR.z)+(Math.random()-0.5)*0.7;
+      group.add(h);
+    }
+    // RIGHT side neighborhood — past the marina inlet
+    if(Math.random()<0.7 && (d<95 || d>145)){
+      const rBase = (d>=15 && d<=220) ? 160 : 55;  // skip inlet water/sand/beach
+      const h=makeHouse(wallCols[Math.floor(Math.random()*wallCols.length)], roofCols[Math.floor(Math.random()*roofCols.length)]);
+      const off=HALF+rBase+Math.random()*80;
+      const p=at(off, d+(Math.random()-0.5)*24);
+      h.position.set(p.x, 0, p.z);
+      h.rotation.y=Math.atan2(-eR.x, -eR.z)+(Math.random()-0.5)*0.7;
+      group.add(h);
+    }
+  }
+  // === SHRUBS / LOW BUSHES — foreground detail scatter to break up bare grass ===
+  const bushMat=new T.MeshStandardMaterial({color:0x6b8558,roughness:1});
+  const bushMat2=new T.MeshStandardMaterial({color:0x7a9265,roughness:1});
+  const bushMat3=new T.MeshStandardMaterial({color:0x5c7648,roughness:1});
+  const bushMats=[bushMat,bushMat2,bushMat3];
+  for(let k=0;k<420;k++){
+    const d = 15+Math.random()*(L-30);
+    const sideSign = Math.random()<0.5 ? -1 : 1;
+    // Two bands: close (front row filler) and mid
+    const band = Math.random()<0.55 ? (16+Math.random()*16) : (46+Math.random()*70);
+    let off = sideSign<0 ? (OFF-HALF-band) : (HALF+band);
+    // avoid marina inlet water & building
+    if(sideSign>0){
+      if(d>=15 && d<=220 && off<HALF+125) off = HALF+125+Math.random()*20;
+      if(d>=95 && d<=140 && off<HALF+90) continue;
+    }
+    const p=at(off, d);
+    const scale=0.55+Math.random()*0.75;
+    const bush=new T.Mesh(new T.IcosahedronGeometry(1,0), bushMats[Math.floor(Math.random()*3)]);
+    bush.scale.set(scale*1.4, scale*0.9, scale*1.3);
+    bush.position.set(p.x, scale*0.55, p.z);
+    bush.rotation.y=Math.random()*Math.PI*2;
+    bush.castShadow=true; bush.receiveShadow=true;
+    group.add(bush);
+  }
+  // === EXTRA REEDS — dense marsh clumps scattered further from road on both sides ===
+  for(let k=0;k<80;k++){
+    const d=8+Math.random()*260;
+    const sideSign=Math.random()<0.5 ? -1 : 1;
+    let off = sideSign<0 ? (OFF-HALF-3-Math.random()*14) : (HALF+3+Math.random()*14);
+    // skip marina inlet water gap on the right
+    if(sideSign>0 && d>15 && d<220 && off<HALF+125) continue;
+    const p=at(off, d);
+    group.add(makeReeds(p.x, p.z, 0.8+Math.random()*0.7));
+  }
+  // === SHEDS / SMALL OUTBUILDINGS ===
+  for(let k=0;k<14;k++){
+    const d=50+Math.random()*(L-100);
+    const sideSign=Math.random()<0.5 ? -1 : 1;
+    const off = sideSign<0 ? (OFF-HALF-40-Math.random()*30) : (HALF+40+Math.random()*30);
+    if(sideSign>0 && d>=15 && d<=220 && off<HALF+140) continue;
+    const p=at(off, d);
+    const w=3+Math.random()*2, h=2.4+Math.random()*0.8, dep=3+Math.random()*2;
+    const shed=box(w, h, dep, new T.MeshStandardMaterial({color:[0x8e7550,0x9d8256,0x6b5a3f][Math.floor(Math.random()*3)],roughness:.9}));
+    shed.position.set(p.x, h/2, p.z);
+    shed.rotation.y=Math.random()*Math.PI*2;
+    shed.castShadow=true; shed.receiveShadow=true;
+    group.add(shed);
+    const roof=box(w+0.4, 0.2, dep+0.4, new T.MeshStandardMaterial({color:0x3d3226,roughness:.85}));
+    roof.position.set(p.x, h+0.1, p.z); roof.rotation.y=shed.rotation.y;
+    roof.castShadow=true; group.add(roof);
+  }
+  // === MAILBOXES / FENCE POSTS along the road (front-row detail) ===
+  const postMat=new T.MeshStandardMaterial({color:0x8b7a5c,roughness:.9});
+  for(let d=30; d<L; d+=12){
+    if(Math.random()<0.6) continue;
+    for(const sideSign of [-1, 1]){
+      if(sideSign>0){
+        if(d>=15 && d<=220) continue; // in inlet zone, no fence
+        if(d>=95 && d<=140) continue;
+      }
+      const off = sideSign<0 ? (OFF-HALF-8) : (HALF+8);
+      const p=at(off, d);
+      const post=new T.Mesh(new T.CylinderGeometry(0.06,0.06,1.0,5), postMat);
+      post.position.set(p.x, 0.5, p.z);
+      post.castShadow=true;
+      group.add(post);
+    }
+  }
+}
+
+function buildShores(group){
+  const wP=PATH_POS[4],wR=PATH_RIGHT[4];
+  const beach=new T.Mesh(new T.PlaneGeometry(360,150),new T.MeshStandardMaterial({map:T_SAND,roughness:1}));
+  beach.rotation.x=-Math.PI/2;beach.position.set(wP.x-40,0.05,-30);beach.receiveShadow=true;group.add(beach);
+  const wgr=new T.Mesh(new T.PlaneGeometry(360,180),new T.MeshStandardMaterial({map:T_GRASS,roughness:1}));
+  wgr.rotation.x=-Math.PI/2;wgr.position.set(wP.x-40,0.04,-160);wgr.receiveShadow=true;group.add(wgr);
+  for(let k=0;k<22;k++)group.add(makeTree(wP.x-160+Math.random()*300,-90-Math.random()*160,0.9+Math.random()));
+  for(let k=0;k<14;k++)group.add(makeReeds(wP.x-120+Math.random()*240,-20-Math.random()*40,0.8+Math.random()*0.6));
+  // small Sandy Point park building
+  const pk=box(16,5,10,new T.MeshStandardMaterial({color:0xd9cbb0,roughness:.85}));pk.position.set(wP.x-70,2.5,-70);pk.castShadow=true;group.add(pk);
+  group.add(new T.Mesh(new T.BoxGeometry(17,0.6,11),new T.MeshStandardMaterial({color:0x555b60,roughness:.7})).translateX(wP.x-70).translateY(5.2).translateZ(-70));
+
+  const eP=PATH_POS[N-3],eR=PATH_RIGHT[N-3];
+  // NOTE: Kent Island ground, sand, trees, boats, and marina are now built entirely by
+  // buildKentIsland() using road-aligned BufferGeometry strips. The old 700x420 grass +
+  // 700x80 sand planes here were centered at eP and covered a huge rectangular area,
+  // hiding the marina inlet water gap. They also placed trees on the wrong side.
+  // buildKentIsland handles everything past the bridge end now — do NOT re-add planes here.
+  buildKentIsland(group);
+  // reeds/marsh along the causeway approach + shore — BOTH sides of BOTH spans, only where deck is low
+  // (skips the high suspension section in the middle by checking P.y)
+  const TWIN_OFF=-44;
+  for(let ii=6; ii<N-4; ii+=6){
+    const P=PATH_POS[ii], R=PATH_RIGHT[ii];
+    if(P.y>5.5) continue;  // only shallow-water trestle sections get reeds
+    // Main (player) span — both sides
+    for(const sgn of [-1,1]){
+      const ox=R.x*sgn*(ROAD_HALF+3+Math.random()*10), oz=R.z*sgn*(ROAD_HALF+3+Math.random()*10);
+      group.add(makeReeds(P.x+ox, P.z+oz, 0.8+Math.random()*0.7));
+    }
+    // Twin span (offset by TWIN_OFF along R) — both sides
+    for(const sgn of [-1,1]){
+      const cx=P.x+R.x*TWIN_OFF, cz=P.z+R.z*TWIN_OFF;
+      const ox=R.x*sgn*(ROAD_HALF+3+Math.random()*10), oz=R.z*sgn*(ROAD_HALF+3+Math.random()*10);
+      group.add(makeReeds(cx+ox, cz+oz, 0.8+Math.random()*0.7));
+    }
+  }
+  // Sandy Point Shoal Light offshore NW
+  const light=new T.Group();
+  const caisson=box(6,4,6,new T.MeshStandardMaterial({color:0x8a3b34,roughness:.8}));caisson.position.y=2;light.add(caisson);
+  const house=new T.Mesh(new T.CylinderGeometry(3,3.4,5,10),new T.MeshStandardMaterial({color:0xe6e2d8,roughness:.7}));house.position.y=6.5;light.add(house);
+  const lantern=box(2,2,2,new T.MeshStandardMaterial({color:0x2b2f33,roughness:.5}));lantern.position.y=10;light.add(lantern);
+  light.position.set(wP.x+120,0,80);light.traverse(o=>{if(o.isMesh)o.castShadow=true;});group.add(light);}
+function buildCargoShip(){const g=new T.Group();
+  const hull=box(16,7,64,new T.MeshStandardMaterial({color:0x2b3a44,roughness:.8}));hull.position.y=1.4;g.add(hull);
+  const deck=box(16.4,1.2,64,new T.MeshStandardMaterial({color:0x8a5a3a,roughness:.85}));deck.position.y=4.8;g.add(deck);
+  const cc=[0xb14b3c,0x3c6cb1,0xb8a13c,0x3ca06b,0x555b60];
+  for(let r=0;r<3;r++)for(let c=-1;c<=1;c++)for(let z=-4;z<=4;z++){
+    const ct=box(4.6,2.6,7.6,new T.MeshStandardMaterial({color:cc[(r+c+z+9)%cc.length],roughness:.8}));ct.position.set(c*5,6.6+r*2.7,z*7.8);g.add(ct);}
+  const hs=box(13,9,10,new T.MeshStandardMaterial({color:0xdfe2e4,roughness:.7}));hs.position.set(0,10,26);g.add(hs);
+  g.position.set(-260,0,2450);g.rotation.y=0.6;g.traverse(o=>{if(o.isMesh)o.castShadow=true;});return g;}
+
+/* ---- small craft: sailboats, motorboats, a workboat ---- */
+const M_WAKE=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,opacity:0.5,depthWrite:false,fog:true});
+function makeBoat(type){
+  const g=new T.Group();
+  const hullMat=new T.MeshStandardMaterial({color:type==='work'?0x8a3f36:0xf0efe9,roughness:.6,metalness:.1});
+  const decMat=new T.MeshStandardMaterial({color:type==='work'?0x6b2f28:0xe0dccc,roughness:.75});
+  const trimMat=new T.MeshStandardMaterial({color:0x2b3540,roughness:.6});
+  const gunMat=new T.MeshStandardMaterial({color:0x1f2830,roughness:.55});
+  let len,beam;
+  if(type==='sail'){len=10;beam=2.8;}else if(type==='motor'){len=8.5;beam=2.7;}else{len=14;beam=4.5;}
+  const hullY=0.55, hullH=1.15;
+  // Tapered hull: mid section (widest), stern (rear, slightly narrower), bow (narrowest)
+  const mid=box(beam, hullH, len*0.55, hullMat); mid.position.y=hullY; g.add(mid);
+  const stern=box(beam*0.88, hullH, len*0.22, hullMat); stern.position.set(0, hullY, -len*0.385); g.add(stern);
+  const bowBox=box(beam*0.7, hullH, len*0.22, hullMat); bowBox.position.set(0, hullY, len*0.385); g.add(bowBox);
+  // Pointed bow prow (triangular using CylinderGeometry with 3 radial segments)
+  const prow=new T.Mesh(new T.CylinderGeometry(0.02, beam*0.35, 1.8, 3), hullMat);
+  prow.rotation.x=Math.PI/2; prow.rotation.z=Math.PI/6;
+  prow.position.set(0, hullY, len/2+0.45); g.add(prow);
+  // Deck (top surface, slightly inset)
+  const deck=box(beam*0.94, 0.08, len*0.98, decMat); deck.position.y=hullH+0.04; g.add(deck);
+  // Gunwale (top rail around deck edge)
+  const gun=box(beam+0.08, 0.16, len+0.06, gunMat); gun.position.y=hullH-0.05; g.add(gun);
+  // Waterline stripe (dark trim below deck)
+  const stripe=box(beam+0.04, 0.14, len*0.98, trimMat); stripe.position.y=hullH-0.22; g.add(stripe);
+
+  if(type==='sail'){
+    // Mast + boom
+    const mast=new T.Mesh(new T.CylinderGeometry(0.06, 0.09, 10, 8), trimMat);
+    mast.position.set(0, 5.5, 0.4); g.add(mast);
+    const boom=new T.Mesh(new T.CylinderGeometry(0.05, 0.06, 4.2, 6), trimMat);
+    boom.rotation.z=Math.PI/2; boom.position.set(0, 1.9, -1.6); g.add(boom);
+    const sailMat=new T.MeshStandardMaterial({color:0xf6f4ee,roughness:.85,side:T.DoubleSide});
+    // Mainsail — triangular with slight curve (skew top toward mast)
+    const mainSail=new T.Mesh(new T.PlaneGeometry(3.8, 7.8, 4, 8), sailMat);
+    const msPos=mainSail.geometry.attributes.position;
+    for(let i=0;i<msPos.count;i++){
+      const x=msPos.getX(i), y=msPos.getY(i);
+      // Taper top toward mast + gentle curve for wind fill
+      const topFactor=(y+3.9)/7.8;
+      const curve=Math.sin(topFactor*Math.PI)*0.25;
+      msPos.setX(i, x - (1-topFactor)*0.6);
+      msPos.setZ(i, curve);
+    }
+    msPos.needsUpdate=true; mainSail.geometry.computeVertexNormals();
+    mainSail.position.set(0.05, 4.9, -0.6);
+    mainSail.rotation.y=Math.PI/2;
+    g.add(mainSail);
+    // Jib sail — smaller triangle at bow
+    const jib=new T.Mesh(new T.PlaneGeometry(2.6, 6.0, 3, 6), sailMat);
+    const jibPos=jib.geometry.attributes.position;
+    for(let i=0;i<jibPos.count;i++){
+      const x=jibPos.getX(i), y=jibPos.getY(i);
+      const topFactor=(y+3.0)/6.0;
+      jibPos.setX(i, x + (1-topFactor)*0.5);
+      jibPos.setZ(i, Math.sin(topFactor*Math.PI)*0.18);
+    }
+    jibPos.needsUpdate=true; jib.geometry.computeVertexNormals();
+    jib.position.set(-0.05, 3.6, 2.3);
+    jib.rotation.y=Math.PI/2;
+    g.add(jib);
+    // Cockpit (recessed seating area)
+    const cockpit=box(beam*0.55, 0.4, 1.9, new T.MeshStandardMaterial({color:0x1a1810,roughness:.9}));
+    cockpit.position.set(0, hullH+0.08, -len*0.22); g.add(cockpit);
+    // Bow rail (small pulpit)
+    const railM=new T.MeshStandardMaterial({color:0xb8bcc0, roughness:.4, metalness:.7});
+    for(const sx of[-1,1]){
+      const stanchion=new T.Mesh(new T.CylinderGeometry(0.02,0.02,0.6,4), railM);
+      stanchion.position.set(sx*beam*0.4, hullH+0.45, len*0.4); g.add(stanchion);
+    }
+    // Backstay (rear cable)
+    const backstay=new T.Mesh(new T.CylinderGeometry(0.015,0.015,10.2,3), trimMat);
+    backstay.position.set(0, 5.3, -len*0.45);
+    backstay.rotation.x=Math.atan2(len*0.85, 10); g.add(backstay);
+  } else if(type==='motor'){
+    // Center-console cabin
+    const cabin=box(beam*0.85, 1.0, len*0.35, new T.MeshStandardMaterial({color:0xdfe3e6,roughness:.6}));
+    cabin.position.set(0, hullH+0.55, -len*0.08); g.add(cabin);
+    // Windshield
+    const glass=box(beam*0.72, 0.55, 0.15, new T.MeshStandardMaterial({color:0x11202a,roughness:.15,metalness:.7}));
+    glass.position.set(0, hullH+1.1, len*0.05); g.add(glass);
+    const glassSide=box(0.1, 0.55, len*0.35, new T.MeshStandardMaterial({color:0x11202a,roughness:.15,metalness:.7}));
+    glassSide.position.set(beam*0.4, hullH+1.1, -len*0.08); g.add(glassSide);
+    const glassSide2=glassSide.clone(); glassSide2.position.x=-beam*0.4; g.add(glassSide2);
+    // Bimini top (canopy)
+    const biminiMat=new T.MeshStandardMaterial({color:0x3d5a6b,roughness:.85});
+    const bimini=box(beam*0.85, 0.06, len*0.28, biminiMat);
+    bimini.position.set(0, hullH+1.85, -len*0.15); g.add(bimini);
+    for(const sx of[-1,1])for(const sz of[-1,1]){
+      const post=new T.Mesh(new T.CylinderGeometry(0.03,0.03,0.7,4), trimMat);
+      post.position.set(sx*beam*0.35, hullH+1.5, -len*0.15+sz*len*0.13); g.add(post);
+    }
+    // T-top antenna
+    const ant=new T.Mesh(new T.CylinderGeometry(0.02,0.02,1.8,4), trimMat);
+    ant.position.set(0, hullH+2.7, -len*0.15); g.add(ant);
+    // Outboard motor cover (rear)
+    const motor=box(0.5, 0.9, 1.1, new T.MeshStandardMaterial({color:0x1a1a1a,roughness:.4}));
+    motor.position.set(0, hullH+0.3, -len*0.5); g.add(motor);
+    // Bow rail
+    const railM=new T.MeshStandardMaterial({color:0xb8bcc0, roughness:.4, metalness:.7});
+    for(const sx of[-1,1]){
+      const stanchion=new T.Mesh(new T.CylinderGeometry(0.02,0.02,0.55,4), railM);
+      stanchion.position.set(sx*beam*0.42, hullH+0.35, len*0.42); g.add(stanchion);
+    }
+  } else {
+    // Work / crab boat
+    const house=box(beam*0.85, 2.2, len*0.32, new T.MeshStandardMaterial({color:0xe4e0d6,roughness:.7}));
+    house.position.set(0, hullH+1.15, -len*0.18); g.add(house);
+    // Wheelhouse windows
+    for(const sx of[-1,0,1]){
+      const win=box(0.9, 0.5, 0.1, new T.MeshStandardMaterial({color:0x11202a,roughness:.25,metalness:.6}));
+      win.position.set(sx*0.9, hullH+1.6, -len*0.18+len*0.16); g.add(win);
+    }
+    // Mast with boom
+    const mast=new T.Mesh(new T.CylinderGeometry(0.09, 0.11, 5.8, 6), trimMat);
+    mast.position.set(0, hullH+3.9, 0.2); g.add(mast);
+    const boom=new T.Mesh(new T.CylinderGeometry(0.06,0.06,3.4,6), trimMat);
+    boom.rotation.z=Math.PI/2; boom.position.set(0, hullH+3.2, 0.2); g.add(boom);
+    // Crab pots stacked on deck
+    for(let i=0;i<4;i++){
+      const c=box(1.3, 1.0, 1.3, new T.MeshStandardMaterial({color:[0xb14b3c,0x3c6cb1,0x3ca06b,0xe8c14a][i],roughness:.85}));
+      c.position.set(-1.7+i*1.1, hullH+0.55, 2.6); g.add(c);
+    }
+    // A second row
+    for(let i=0;i<3;i++){
+      const c=box(1.3, 1.0, 1.3, new T.MeshStandardMaterial({color:[0x8b5a3c,0x4a7cb5,0xd8b040][i],roughness:.85}));
+      c.position.set(-1.1+i*1.1, hullH+1.6, 2.6); g.add(c);
+    }
+    // Exhaust stack
+    const stack=new T.Mesh(new T.CylinderGeometry(0.14,0.16,1.3,6), new T.MeshStandardMaterial({color:0x2a2a2a,roughness:.7}));
+    stack.position.set(beam*0.25, hullH+3.0, -len*0.18); g.add(stack);
+  }
+  g.traverse(o=>{if(o.isMesh)o.castShadow=true;});
+  const wake=new T.Mesh(new T.PlaneGeometry(beam*2.4, len*2.5), M_WAKE);
+  wake.rotation.x=-Math.PI/2;
+  wake.position.set(0, 0.12, -len*0.9);
+  g.add(wake);
+  return {group:g, len, wake};
+}
+function makeGull(){
+  const g=new T.Group();
+  const bodyMat=new T.MeshBasicMaterial({color:0xf5f5f2,fog:true});                // white body
+  const wingMat=new T.MeshBasicMaterial({color:0xb7bec4,side:T.DoubleSide,fog:true}); // pale grey wings
+  const tipMat=new T.MeshBasicMaterial({color:0x22262a,side:T.DoubleSide,fog:true}); // dark wingtips
+  const beakMat=new T.MeshBasicMaterial({color:0xe5a325,fog:true});                  // yellow beak
+  // torso: tapered ovoid
+  const body=new T.Mesh(new T.SphereGeometry(0.14,7,5),bodyMat);body.scale.set(0.75,0.6,1.6);g.add(body);
+  // head + tiny yellow beak
+  const head=new T.Mesh(new T.SphereGeometry(0.08,6,5),bodyMat);head.position.set(0,0.05,0.24);g.add(head);
+  const beak=new T.Mesh(new T.ConeGeometry(0.03,0.09,4),beakMat);beak.rotation.x=Math.PI/2;beak.position.set(0,0.05,0.34);g.add(beak);
+  // v-tail
+  const tail=new T.Mesh(new T.PlaneGeometry(0.22,0.18),wingMat);tail.rotation.x=-Math.PI/2;tail.position.set(0,-0.02,-0.28);g.add(tail);
+  // curved gull wing (each side): tapered inner sheet + a dark wingtip, hinged at shoulder
+  function wing(sign){
+    const w=new T.Group();
+    // inner wing sheet (broad near body, tapering out)
+    const sh=new T.Shape();sh.moveTo(0,-0.08);sh.lineTo(1.8,-0.06);sh.lineTo(1.9,0.02);sh.lineTo(0,0.14);
+    const inner=new T.Mesh(new T.ShapeGeometry(sh),wingMat);inner.rotation.x=-Math.PI/2;w.add(inner);
+    // dark primary/wingtip, angled back
+    const tp=new T.Shape();tp.moveTo(0,-0.05);tp.lineTo(0.7,-0.11);tp.lineTo(0.8,0.02);tp.lineTo(0,0.08);
+    const tip=new T.Mesh(new T.ShapeGeometry(tp),tipMat);tip.rotation.x=-Math.PI/2;tip.position.set(1.75,0,0);tip.rotation.z=-0.28;w.add(tip);
+    w.scale.x=sign;g.add(w);return w;}
+  const wl=wing(1),wr=wing(-1);
+  return {group:g,wl,wr,phase:Math.random()*6.28};
+}
+function buildAmbience(){
+  boats=[];gulls=[];
+  // scatter boats around the visible bay, mostly off to the sides of the bridge
+  const specs=[['sail',1],['sail',1],['sail',1],['motor',1],['motor',1],['work',1],['sail',1],['motor',1],['work',1],['sail',1]];
+  for(let k=0;k<specs.length;k++){
+    const b=makeBoat(specs[k][0]);
+    // pick a station along the bridge and an offset out to the side
+    const ii=Math.floor(40+Math.random()*(N-120));const P=PATH_POS[ii],R=PATH_RIGHT[ii];
+    const side=(Math.random()<0.5?-1:1)*(70+Math.random()*420);
+    b.home=new T.Vector3(P.x+R.x*side,0,P.z+R.z*side);
+    b.heading=Math.random()*Math.PI*2;b.speed=(specs[k][0]==='sail'?1.2:2.4)+Math.random()*1.5;
+    b.bob=Math.random()*6.28;b.turn=(Math.random()-0.5)*0.04;
+    b.group.position.copy(b.home);b.group.rotation.y=b.heading;
+    scene.add(b.group);boats.push(b);
+  }
+  // seagulls wheeling near the player
+  for(let k=0;k<16;k++){
+    const gl=makeGull();
+    gl.orbit=Math.random()*6.28;gl.radius=30+Math.random()*140;gl.height=14+Math.random()*46;
+    gl.orbSpeed=(Math.random()<0.5?-1:1)*(0.05+Math.random()*0.12);gl.flap=1.2+Math.random()*1.6;
+    scene.add(gl.group);gulls.push(gl);
+  }
+}
+let _ambT=0;
+function updateAmbience(dt,s,wet){
+  _ambT+=dt;
+  const cx=player?player.group.position.x:0, cz=player?player.group.position.z:0;
+  // boats drift, gently turn, bob; wake fades when slow
+  for(const b of boats){
+    b.heading+=b.turn*dt;
+    b.group.position.x+=Math.sin(b.heading)*b.speed*dt;
+    b.group.position.z+=Math.cos(b.heading)*b.speed*dt;
+    // keep boats loosely near their home patch
+    const dx=b.group.position.x-b.home.x, dz=b.group.position.z-b.home.z;
+    if(dx*dx+dz*dz>300*300){b.heading=Math.atan2(-dx,-dz);}
+    b.group.rotation.y=b.heading;
+    b.group.rotation.z=Math.sin(_ambT*0.8+b.bob)*0.04;   // gentle roll
+    b.group.position.y=Math.sin(_ambT*0.9+b.bob)*0.12;    // bob
+    if(b.wake)b.wake.material.opacity=0.42;
+  }
+  // gulls wheel around the player: slow flap with occasional glides, bank into turns
+  for(const gl of gulls){
+    gl.orbit+=gl.orbSpeed*dt;
+    const px=cx+Math.cos(gl.orbit)*gl.radius, pz=cz+Math.sin(gl.orbit)*gl.radius;
+    const bob=Math.sin(_ambT*0.5+gl.phase)*3;
+    // flap: soft rise on upstroke, sharper down; a "glide window" every few seconds
+    const t=_ambT*gl.flap+gl.phase;
+    const glideMix=Math.max(0,Math.sin(_ambT*0.5+gl.phase)*0.5+0.5);   // 0..1 slow envelope
+    const glide=glideMix<0.3?0:1;
+    const f=Math.sin(t)*glide;
+    const dip=Math.max(0,-f)*0.06;                                     // body dips slightly on downstroke
+    gl.group.position.set(px,gl.height+bob-dip,pz);
+    gl.group.rotation.y=-gl.orbit+(gl.orbSpeed>0?Math.PI:0);
+    gl.group.rotation.z=gl.orbSpeed*4;                                 // bank into the turn
+    // wings: shoulder pivots, more range on downstroke; tips lag slightly
+    const up=0.35+f*0.55, dn=-0.35-f*0.55;
+    gl.wl.rotation.z=up; gl.wr.rotation.z=dn;
+    gl.group.visible=s.day>0.15;                                       // roosting at night
+  }
+}
+function buildTwinSpan(group){const OFF=-44;const twin=new T.Group();  // companion span to the LEFT (matches photos)
+  const dm=new T.Mesh(buildDeck(OFF),M_ROAD);dm.receiveShadow=true;dm.castShadow=true;twin.add(dm);
+  twin.add(new T.Mesh(buildBarrier(-1,OFF),M_BARR));twin.add(new T.Mesh(buildBarrier(1,OFF),M_BARR));
+  addPiers(OFF,twin,12,false);
+  const i1=idxAtZ(1560),i2=idxAtZ(2100);
+  const t1=suspensionTower(i1,OFF,50,false,twin),t2=suspensionTower(i2,OFF,50,false,twin);
+  suspensionCables(t1,t2,i1,i2,OFF,twin);
+  addAnchorPier(idxAtZ(1380),OFF,twin);addAnchorPier(idxAtZ(2280),OFF,twin);
+  trussCage(idxAtZ(2760),idxAtZ(3160),OFF,twin);
+  group.add(twin);}
+
+/* =============================== VEHICLES =============================== */
+// Origin of the group = REAR AXLE. Model extends forward along +Z.
+// Body is an extruded, beveled side-silhouette (rounded, sloped) — not stacked boxes.
+function extrudeProfile(pts,width,bevel,mat){
+  const sh=new T.Shape();sh.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++)sh.lineTo(pts[i][0],pts[i][1]);
+  const geo=new T.ExtrudeGeometry(sh,{depth:Math.max(0.02,width-2*bevel),bevelEnabled:bevel>0,
+    bevelThickness:bevel,bevelSize:bevel,bevelSegments:2,steps:1,curveSegments:4});
+  geo.rotateY(-Math.PI/2);geo.computeBoundingBox();const bb=geo.boundingBox;
+  geo.translate(-(bb.min.x+bb.max.x)/2,0,0);
+  const m=new T.Mesh(geo,mat);m.castShadow=true;return m;
+}
+function makeVehicle(type,color){
+  const g=new T.Group();
+  const paint=new T.MeshStandardMaterial({color:color,roughness:.34,metalness:.55,side:T.DoubleSide});
+  const dark =new T.MeshStandardMaterial({color:color,roughness:.5,metalness:.4});dark.color.multiplyScalar(0.8);
+  const glass=new T.MeshStandardMaterial({color:0x0b1418,roughness:.08,metalness:.8,side:T.DoubleSide});
+  const trim =new T.MeshStandardMaterial({color:0x1f2326,roughness:.7,metalness:.3});
+  const chrome=new T.MeshStandardMaterial({color:0x9aa2a8,roughness:.3,metalness:.85});
+  let L,oR,oF,wid,bodyH,cabH,wheelR,cabRF,cabFF,hoodDrop;
+  if(type==='sedan'){L=2.7;oR=0.82;oF=0.86;wid=1.82;bodyH=0.62;cabH=0.52;wheelR=0.33;cabRF=0.30;cabFF=0.64;hoodDrop=0.12;}
+  else if(type==='suv'){L=2.85;oR=0.9;oF=0.95;wid=1.94;bodyH=0.74;cabH=0.72;wheelR=0.42;cabRF=0.27;cabFF=0.63;hoodDrop=0.05;}
+  else if(type==='minivan'){L=3.0;oR=0.85;oF=0.92;wid=1.92;bodyH=0.66;cabH=0.9;wheelR=0.39;cabRF=0.19;cabFF=0.70;hoodDrop=0.07;}
+  else{/*pickup*/L=3.35;oR=0.85;oF=0.95;wid=1.98;bodyH=0.78;cabH=0.66;wheelR=0.46;cabRF=0.40;cabFF=0.70;hoodDrop=0.05;}
+  const x0=-oR, x1=L+oF, bodyLen=x1-x0, bodyCz=(x0+x1)/2;
+  const yFloor=wheelR*0.5, yBelt=yFloor+bodyH, yRoof=yBelt+cabH;
+  const cabR=x0+bodyLen*cabRF, cabF=x0+bodyLen*cabFF, cw=cabF-cabR;
+
+  if(type!=='pickup'){
+    // smooth lower body (rounded, sloped hood, trunk) — one beveled extrusion
+    const lower=[[x0+0.10,yFloor],[x1-0.12,yFloor],[x1-0.02,yFloor+0.16],[x1,yBelt-hoodDrop-0.05],
+      [x1-0.18,yBelt-hoodDrop],[cabF,yBelt],[x0+0.05,yBelt],[x0,yFloor+0.15]];
+    g.add(extrudeProfile(lower,wid,0.11,paint));
+    // tapered glass greenhouse
+    const cabin=[[cabR,yBelt-0.01],[cabR+cw*0.16,yRoof],[cabF-cw*0.13,yRoof],[cabF,yBelt-0.01]];
+    g.add(extrudeProfile(cabin,wid*0.9,0.05,glass));
+    // painted roof cap
+    const cap=[[cabR+cw*0.15,yRoof-0.04],[cabR+cw*0.22,yRoof+0.02],[cabF-cw*0.17,yRoof+0.02],[cabF-cw*0.12,yRoof-0.04]];
+    g.add(extrudeProfile(cap,wid*0.93,0.04,paint));
+  }else{
+    const yBed=yFloor+bodyH*0.72;
+    const lower=[[x0+0.10,yFloor],[x1-0.12,yFloor],[x1-0.02,yFloor+0.16],[x1,yBelt-hoodDrop-0.05],
+      [x1-0.18,yBelt-hoodDrop],[cabF,yBelt],[cabR,yBelt],[cabR,yBed],[x0+0.05,yBed],[x0,yFloor+0.15]];
+    g.add(extrudeProfile(lower,wid,0.10,paint));
+    // cab glass
+    const cabin=[[cabR,yBelt-0.01],[cabR+cw*0.14,yRoof],[cabF-cw*0.12,yRoof],[cabF,yBelt-0.01]];
+    g.add(extrudeProfile(cabin,wid*0.9,0.05,glass));
+    const cap=[[cabR+cw*0.13,yRoof-0.04],[cabR+cw*0.2,yRoof+0.02],[cabF-cw*0.16,yRoof+0.02],[cabF-cw*0.1,yRoof-0.04]];
+    g.add(extrudeProfile(cap,wid*0.93,0.04,paint));
+    // open bed walls + tailgate
+    const bedZ=(x0+cabR)/2, bedLen=cabR-x0;
+    for(const s of[-1,1]){const wall=box(0.12,0.34,bedLen,paint);wall.position.set(s*wid*0.45,yBed+0.17,bedZ);g.add(wall);}
+    const tg=box(wid*0.9,0.34,0.12,paint);tg.position.set(0,yBed+0.17,x0+0.1);g.add(tg);
+  }
+  // A/B/C pillars (thin, slightly outboard of the glass)
+  for(const s of[-1,1])for(const zz of[cabR+0.04,(cabR+cabF)/2,cabF-0.04]){
+    const pil=box(0.05,yRoof-yBelt+0.05,0.13,paint);pil.position.set(s*wid*0.455,(yBelt+yRoof)/2,zz);g.add(pil);}
+  // mirrors
+  for(const s of[-1,1]){const m=box(0.1,0.13,0.24,trim);m.position.set(s*(wid/2+0.12),yBelt+0.1,cabF-0.15);g.add(m);}
+  // wheels: rear axle at z=0, front axle at z=L, front wheels steer
+  const tireMat=new T.MeshStandardMaterial({color:0x111417,roughness:.95});
+  const rimMat=new T.MeshStandardMaterial({color:0xc3c9ce,roughness:.35,metalness:.8});
+  const wheels=[],steerers=[];const wx=wid/2-0.04;
+  for(const px of[-wx,wx])for(const pz of[0,L]){
+    const steer=new T.Group();steer.position.set(px,wheelR,pz);g.add(steer);
+    const roll=new T.Group();steer.add(roll);
+    const tire=new T.Mesh(new T.CylinderGeometry(wheelR,wheelR,0.3,20),tireMat);tire.rotation.z=Math.PI/2;tire.castShadow=true;roll.add(tire);
+    const rim=new T.Mesh(new T.CylinderGeometry(wheelR*0.6,wheelR*0.6,0.32,14),rimMat);rim.rotation.z=Math.PI/2;roll.add(rim);
+    const hub=new T.Mesh(new T.CylinderGeometry(wheelR*0.15,wheelR*0.15,0.34,8),chrome);hub.rotation.z=Math.PI/2;roll.add(hub);
+    wheels.push(roll); if(pz===L)steerers.push(steer);
+  }
+  const hlMat=new T.MeshStandardMaterial({color:0xfff6de,emissive:0xffeec2,emissiveIntensity:1.0});
+  const tlMat=new T.MeshStandardMaterial({color:0xff5548,emissive:0xd6231a,emissiveIntensity:1.0});
+  const grille=box(wid*0.6,0.22,0.06,trim);grille.position.set(0,yFloor+bodyH*0.45,x1-0.01);g.add(grille);
+  const head=[],tail=[];
+  for(const sx of[-1,1]){
+    const h=box(0.4,0.18,0.08,hlMat);h.position.set(sx*wid*0.33,yFloor+bodyH*0.62,x1-0.02);g.add(h);head.push(h.material);
+    const t=box(0.46,0.2,0.08,tlMat);t.position.set(sx*wid*0.33,yFloor+bodyH*0.62,x0+0.02);g.add(t);tail.push(t.material);
+  }
+  const rbar=box(wid*0.5,0.06,0.05,tlMat);rbar.position.set(0,yFloor+bodyH*0.62,x0+0.015);g.add(rbar);
+  // soft contact shadow
+  const blob=new T.Mesh(new T.PlaneGeometry(wid*1.55,bodyLen*1.08),M_BLOB);
+  blob.rotation.x=-Math.PI/2;blob.position.set(0,0.05,bodyCz);g.add(blob);
+  return {group:g,head,tail,wheels,steerers,L,len:bodyLen,wid,wheelR};
+}
+
+function buildTraffic(){
+  const types=['sedan','suv','minivan','pickup','suv','sedan'];
+  const cols=[0xd8dadb,0x2f3a42,0xc0c4c7,0x394b57,0xe0ddd4,0x7a2f2a,0x8fa0ad,0x35506a];
+  // spread ~22 cars along the whole 6.9km bridge, both lanes
+  const count=14;
+  for(let k=0;k<count;k++){
+    const v=makeVehicle(types[k%types.length],cols[k%cols.length]);
+    const s=250+k*(PATH_LEN-500)/count + (Math.random()*80-40);
+    const lane=(k%2===0)?1.9:-1.9;
+    v.s=s; v.x=lane; v.spd=15+Math.random()*7;   // 15-22 m/s (~34-49 mph), eastbound
+    scene.add(v.group);trafficCars.push(v);
+  }
+}
+function placeVehicle(v,s,x,yaw){
+  yaw=yaw||0; const L=v.L||2.7;
+  const fr=sampleAtS(s);
+  const rear=new T.Vector3(fr.pos.x+fr.right.x*x, fr.pos.y+0.02, fr.pos.z+fr.right.z*x);
+  // front axle point: L ahead of the rear axle along the heading (yaw relative to tangent)
+  const fs=Math.min(PATH_LEN-0.5, s+L*Math.cos(yaw));
+  const fx=x+L*Math.sin(yaw);
+  const ff=sampleAtS(fs);
+  const front=new T.Vector3(ff.pos.x+ff.right.x*fx, ff.pos.y+0.02, ff.pos.z+ff.right.z*fx);
+  v.group.position.copy(rear);
+  v.group.lookAt(front);            // aims +Z (front of model) toward the front axle -> pivots about rear axle
+}
+
+/* =============================== SKY / WATER / LIGHTS =============================== */
+const SKY_VERT='varying vec3 vW; void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}';
+const SKY_FRAG='varying vec3 vW; uniform vec3 top; uniform vec3 bot; uniform float off; void main(){ float h=normalize(vW).y; float t=clamp((h+off)*1.1,0.0,1.0); t=pow(t,0.7); gl_FragColor=vec4(mix(bot,top,t),1.0);}';
+function buildSky(){
+  const geo=new T.SphereGeometry(3200,24,16);
+  const mat=new T.ShaderMaterial({vertexShader:SKY_VERT,fragmentShader:SKY_FRAG,side:T.BackSide,depthWrite:false,
+    uniforms:{top:{value:new T.Color(0x3f7fb8)},bot:{value:new T.Color(0xcfe4f0)},off:{value:0.15}}});
+  sky=new T.Mesh(geo,mat);scene.add(sky);
+  sunMesh=new T.Mesh(new T.CircleGeometry(120,24),new T.MeshBasicMaterial({color:0xfff2cf,transparent:true,opacity:.95,fog:false}));scene.add(sunMesh);
+  const sp=[];for(let i=0;i<2000;i++){const v=new T.Vector3((Math.random()-.5),Math.random()*0.9+0.05,(Math.random()-.5)).normalize().multiplyScalar(3000);sp.push(v.x,v.y,v.z);}
+  const sg=new T.BufferGeometry();sg.setAttribute('position',new T.Float32BufferAttribute(sp,3));
+  starField=new T.Points(sg,new T.PointsMaterial({color:0xffffff,size:5,transparent:true,opacity:0,fog:false}));scene.add(starField);
+  // two cloud layers: broad flat cumulus lower + thin wisps higher (camera-facing billboards)
+  clouds=[];
+  for(let i=0;i<14;i++){
+    const sz=380+Math.random()*560;
+    const tex=T_CLOUD_POOL[Math.floor(Math.random()*T_CLOUD_POOL.length)];
+    const m=new T.MeshBasicMaterial({map:tex,transparent:true,opacity:0.0,depthWrite:false,fog:false});
+    const cl=new T.Mesh(new T.PlaneGeometry(sz,sz*(0.44+Math.random()*0.12)),m);cl.renderOrder=-2;
+    if(Math.random()<0.5)cl.scale.x=-1;                                          // horizontal flip for variety
+    cl.userData={az:Math.random()*Math.PI*2, el:0.12+Math.random()*0.55, dist:1500+Math.random()*1500, drift:0.003+Math.random()*0.008, kind:'cu', op:0.72+Math.random()*0.28};
+    scene.add(cl);clouds.push(cl);
+  }
+  for(let i=0;i<4;i++){
+    const sz=520+Math.random()*520;
+    const m=new T.MeshBasicMaterial({map:T_WISP,transparent:true,opacity:0.0,depthWrite:false,fog:false});
+    const cl=new T.Mesh(new T.PlaneGeometry(sz,sz*0.26),m);cl.renderOrder=-3;
+    cl.userData={az:Math.random()*Math.PI*2, el:0.5+Math.random()*0.35, dist:2200+Math.random()*900, drift:0.002+Math.random()*0.004, kind:'wisp', op:0.32+Math.random()*0.22};
+    scene.add(cl);clouds.push(cl);
+  }
+}
+function skyState(tod){
+  const ang=(tod-0.25)*Math.PI*2,elev=Math.sin(ang),azi=Math.cos(ang);
+  const sunDir=new T.Vector3(azi*0.6,Math.max(-0.2,elev),0.5).normalize();
+  const day=Math.max(0,Math.min(1,(elev+0.12)/0.5)), horizon=Math.max(0,1-Math.abs(elev)/0.28)*day;
+  const cNT=new T.Color(0x0b1830),cNB=new T.Color(0x142235),cDT=new T.Color(0x3f82bd),cDB=new T.Color(0xcfe4f0),cG=new T.Color(0xff9d5c);
+  const top=cNT.clone().lerp(cDT,day),bot=cNB.clone().lerp(cDB,day);
+  bot.lerp(cG,horizon*0.55);top.lerp(cG,horizon*0.18);
+  const sunCol=new T.Color(0xffd98a).lerp(cG,horizon*0.7);
+  const lightCol=new T.Color(0x243247).lerp(new T.Color(0xfff2dc),day);lightCol.lerp(cG,horizon*0.5);
+  return {sunDir,top,bot,sunCol,lightCol,lightInt:0.12+day*1.5,ambInt:0.2+day*0.36,hemiInt:0.18+day*0.4,fog:bot.clone().lerp(top,0.25),day,horizon};
+}
+let waterNormA=null;
+function buildWater(){const wt=waterTexture();
+  waterNormA=waterNormalTexture();
+  const mat=new T.MeshStandardMaterial({map:wt,normalMap:waterNormA,normalScale:new T.Vector2(0.5,0.5),
+    color:0x84a3aa,roughness:.42,metalness:0});
+  waterMesh=new T.Mesh(new T.PlaneGeometry(9000,9000,1,1),mat);waterMesh.rotation.x=-Math.PI/2;
+  waterMesh.position.set(0,0,3400);waterMesh.receiveShadow=true;scene.add(waterMesh);
+  WATER_ANIM.push(wt);}
+function buildRain(){const cnt=2600,pos=[],vel=[];
+  for(let i=0;i<cnt;i++){pos.push((Math.random()-.5)*260,Math.random()*160,(Math.random()-.5)*260);vel.push(0.9+Math.random()*0.6);}
+  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  const m=new T.PointsMaterial({color:0xbcd6e6,size:0.5,transparent:true,opacity:0,fog:true});
+  rainSys=new T.Points(g,m);rainSys.userData.vel=vel;scene.add(rainSys);}
+function updateRain(dt){if(!rainSys)return;rainSys.material.opacity=0.55*rain;if(rain<0.01)return;
+  const p=rainSys.geometry.attributes.position.array,vel=rainSys.userData.vel;
+  const cx=player.group.position.x,cz=player.group.position.z,cy=player.group.position.y;
+  for(let i=0;i<p.length;i+=3){p[i+1]-=vel[i/3]*80*dt;
+    if(p[i+1]<cy-4){p[i+1]=cy+120;p[i]=cx+(Math.random()-.5)*240;p[i+2]=cz+(Math.random()-.5)*240;}}
+  rainSys.geometry.attributes.position.needsUpdate=true;}
+
+/* =============================== BUILD WORLD =============================== */
+function buildWorld(){
+  buildPath();
+  const world=new T.Group();scene.add(world);
+  // shadow ribbons on the water first (under everything) for depth
+  // (fake shadow ribbon removed — the real sun-cast shadow on the water is the sole shadow now)
+  // deck given real thickness: soffit underside + fascia girder faces on both edges
+  const sof0=new T.Mesh(buildSoffit(0),M_SOFFIT);sof0.castShadow=true;world.add(sof0);
+  const fa0=new T.Mesh(buildFascia(-1,0),M_FASCIA);fa0.castShadow=true;world.add(fa0);
+  const fb0=new T.Mesh(buildFascia(1,0),M_FASCIA);fb0.castShadow=true;world.add(fb0);
+  const sof1=new T.Mesh(buildSoffit(-44),M_SOFFIT);sof1.castShadow=true;world.add(sof1);
+  const fa1=new T.Mesh(buildFascia(-1,-44),M_FASCIA);fa1.castShadow=true;world.add(fa1);
+  const fb1=new T.Mesh(buildFascia(1,-44),M_FASCIA);fb1.castShadow=true;world.add(fb1);
+  const deck=new T.Mesh(buildDeck(0),M_ROAD);deck.receiveShadow=true;deck.castShadow=true;world.add(deck);
+  world.add(new T.Mesh(buildBarrier(-1,0),M_BARR));world.add(new T.Mesh(buildBarrier(1,0),M_BARR));
+  addRailing(0,world);
+  addPiers(0,world,7);
+  addExpansionJoints(0,world);
+  addLightPoles(0,world);
+  const i1=idxAtZ(1560),i2=idxAtZ(2100);
+  const t1=suspensionTower(i1,0,54,true,world),t2=suspensionTower(i2,0,54,true,world);
+  suspensionCables(t1,t2,i1,i2,0,world);
+  addAnchorPier(idxAtZ(1380),0,world);addAnchorPier(idxAtZ(2280),0,world);
+  deckTruss(idxAtZ(2380),idxAtZ(2740),0,world);
+  deckTruss(idxAtZ(3180),idxAtZ(3480),0,world);
+  trussCage(idxAtZ(2760),idxAtZ(3160),0,world,true);   // dense (player drives through)
+  buildTwinSpan(world);
+  gantry(idxAtZ(700),'arrow',world);
+  gantry(idxAtZ(2300),'arrow',world);
+  gantry(idxAtZ(2740),'x',world);
+  gantry(idxAtZ(3500),'arrow',world);
+  gantry(idxAtZ(6300),'arrow',world);
+  buildShores(world);
+  scene.add(buildCargoShip());
+  buildWater();
+  buildTraffic();
+  buildAmbience();
+  player=makeVehicle('suv',0xcfd2d3);scene.add(player.group);
+  // real headlight beam (no shadow — cheap) that lights the road at night
+  const beam=new T.SpotLight(0xfff0d6,0,80,Math.PI/5.0,0.5,1.2);
+  beam.position.set(0,1.0,player.L*0.5+0.6);
+  const btgt=new T.Object3D();btgt.position.set(0,-2.0,30);player.group.add(btgt);player.group.add(beam);beam.target=btgt;
+  player.beam=beam;
+  player.headPools=[];
+  for(const sx of[-0.6,0.6]){const p=new T.Mesh(GLOW_GEO,M_HEADGLOW);p.rotation.x=-Math.PI/2;
+    p.position.set(sx,0.06,player.L+3.5);p.scale.set(3.4,8,1);player.group.add(p);player.headPools.push(p);}
+}
+
+/* =============================== INIT =============================== */
+function init(){
+  renderer=new T.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;   // soft, no VSM light-bleed
+  renderer.outputEncoding=T.sRGBEncoding;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=0.9;
+  scene=new T.Scene();scene.fog=new T.Fog(0xc7ddea,260,2200);
+  camera=new T.PerspectiveCamera(58,innerWidth/innerHeight,0.5,7000);camera.position.set(0,10,-14);
+  amb=new T.AmbientLight(0xffffff,0.5);scene.add(amb);
+  hemi=new T.HemisphereLight(0xcfe4f0,0x8a7c64,0.6);scene.add(hemi);
+  sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(3072,3072);
+  const sc=sunLight.shadow.camera;sc.near=20;sc.far=900;sc.left=-480;sc.right=480;sc.top=480;sc.bottom=-480;
+  sunLight.shadow.bias=-0.0002;sunLight.shadow.normalBias=0.02;sunLight.shadow.radius=8;
+  scene.add(sunLight);scene.add(sunLight.target);
+  buildSky();clock=new T.Clock();buildWorld();buildRain();
+  updateEnvironment(0);addInput();addEventListener('resize',onResize);animate();
+}
+function onResize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);}
+
+/* =============================== INPUT =============================== */
+function addInput(){
+  addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;
+    if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
+    if(k==='r'){rainTarget=rainTarget>0.5?0:1;flash(rainTarget>0.5?'Rain':'Clearing');}
+    if(k==='n'){autoTime=!autoTime;flash(autoTime?'Time: auto':'Time: fixed');}
+    if(k===','){timeOfDay=(timeOfDay-0.03+1)%1;} if(k==='.'){timeOfDay=(timeOfDay+0.03)%1;}
+    if(k==='c'){camMode=(camMode+1)%(camMode===3?4:3);flash(['Chase','Hood','Cinematic'][camMode]);}
+    if(k==='o'){camMode=camMode===3?0:3;flash(camMode===3?'Bird\'s Eye (WASD pan, scroll zoom)':'Chase');}
+    if(k==='h'){showTraffic=!showTraffic;}
+    if(k==='b'){car.gear=(car.gear%6)+1;flash('Gear '+GEARS[car.gear].label,car.gear>=3?'FLOOR IT':'');}
+  });
+  addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+  const bind=(id,on)=>{const el=document.getElementById(id);
+    const s=e=>{e.preventDefault();keys[on]=true;},t=e=>{e.preventDefault();keys[on]=false;};
+    el.addEventListener('touchstart',s);el.addEventListener('touchend',t);el.addEventListener('mousedown',s);el.addEventListener('mouseup',t);};
+  bind('tL','a');bind('tR','d');bind('tA','w');bind('tB','s');
+  // mouse wheel = zoom (all modes)
+  addEventListener('wheel',e=>{e.preventDefault();camZoom=Math.max(0.45,Math.min(3.2,camZoom*(1+e.deltaY*0.0012)));},{passive:false});
+  // drag to orbit in cinematic mode
+  const cv=document.getElementById('c');
+  const down=(x,y)=>{dragging=true;lastMX=x;lastMY=y;};
+  const move=(x,y)=>{if(!dragging)return;const dx=x-lastMX,dy=y-lastMY;lastMX=x;lastMY=y;
+    if(camMode===2){cineYaw-=dx*0.006;cinePitch=Math.max(0.06,Math.min(1.35,cinePitch+dy*0.005));}};
+  const up=()=>{dragging=false;};
+  cv.addEventListener('mousedown',e=>down(e.clientX,e.clientY));
+  addEventListener('mousemove',e=>move(e.clientX,e.clientY));
+  addEventListener('mouseup',up);
+  cv.addEventListener('touchstart',e=>{if(e.touches.length===1)down(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
+  cv.addEventListener('touchmove',e=>{if(e.touches.length===1)move(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
+  cv.addEventListener('touchend',up);
+  document.getElementById('go').addEventListener('click',()=>{
+    document.getElementById('start').style.display='none';car.started=true;flash('Sandy Point','WESTERN SHORE');});
+}
+
+/* =============================== ENVIRONMENT =============================== */
+function updateEnvironment(dt){
+  if(autoTime)timeOfDay=(timeOfDay+dt*0.012)%1;
+  rain+=(rainTarget-rain)*Math.min(1,dt*1.5);
+  const s=skyState(timeOfDay);if(sky)sky.position.copy(camera.position);
+  const wet=rain;
+  sky.material.uniforms.top.value.copy(s.top.clone().lerp(new T.Color(0x5a6b78),wet*0.6));
+  sky.material.uniforms.bot.value.copy(s.bot.clone().lerp(new T.Color(0x8a97a0),wet*0.6));
+  const waterC=new T.Color(0x5c7e84).lerp(s.bot,0.15+0.5*(1-s.day));
+  // Fog: blend TOWARD water color only during the day. At night s.day=0 so fog stays as s.fog (dark night sky).
+  scene.fog.color.copy(s.fog).lerp(waterC,0.55*s.day).lerp(new T.Color(0x7d8b94),wet*0.5);
+  scene.fog.near=rain>0.5?120:180;scene.fog.far=rain>0.5?1100:1600;
+  amb.intensity=s.ambInt*(1-wet*0.25)*1.7;hemi.intensity=s.hemiInt*(1-wet*0.3)*1.6;hemi.color.copy(s.top);
+  sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.55)*0.4;
+  const cx=player?player.group.position.x:0,cz=player?player.group.position.z:0;
+  const fwd=sampleAtS(car.s).tan;const tx2=cx+fwd.x*120, tz2=cz+fwd.z*120;   // aim shadow box moderately ahead
+  sunLight.position.set(tx2+s.sunDir.x*420,s.sunDir.y*420+40,tz2+s.sunDir.z*420);sunLight.target.position.set(tx2,0,tz2);
+  if(sunMesh){sunMesh.position.set(s.sunDir.x*2800,s.sunDir.y*2800,s.sunDir.z*2800+cz);sunMesh.lookAt(camera.position);
+    sunMesh.material.color.copy(s.sunCol);sunMesh.material.opacity=Math.max(0,s.day*0.9+s.horizon*0.4);sunMesh.visible=s.sunDir.y>-0.05;}
+  starField.material.opacity=Math.max(0,(1-s.day)*0.9-wet*0.5);starField.position.set(0,0,cz);
+  // clouds drift across the dome, always around the camera, facing it
+  const cloudOp=Math.max(0,0.16+s.day*0.72-wet*0.55);
+  for(const cl of clouds){cl.userData.az+=dt*cl.userData.drift;
+    const az=cl.userData.az,el=cl.userData.el,d=cl.userData.dist;
+    cl.position.set(camera.position.x+Math.cos(az)*d, 120+Math.sin(el)*d*0.5, camera.position.z+Math.sin(az)*d);
+    cl.lookAt(camera.position);cl.material.opacity=cloudOp*(cl.userData.op||1)*(cl.userData.kind==='wisp'?0.6:1);
+    cl.material.color.copy(new T.Color(0xffffff).lerp(s.bot,0.22).lerp(new T.Color(0x9fb0bd),wet*0.5));}
+  updateAmbience(dt,s,wet);
+  // street lamps + their road pools glow at night
+  const night=Math.max(0,Math.min(1,1-s.day*2.2))+wet*0.3;
+  M_LAMP.emissiveIntensity=night*1.6;
+  M_LAMPGLOW.opacity=Math.min(0.8,night*0.6);
+  if(waterMesh){waterMesh.material.color.copy(new T.Color(0x5c7e84).lerp(s.bot,0.15+0.5*(1-s.day)).lerp(new T.Color(0x3a4a50),wet*0.5));
+    waterMesh.position.z=cz;waterMesh.position.x=cx;}
+  WATER_ANIM.forEach(t=>{t.offset.y-=dt*(0.01+rain*0.04);t.offset.x+=dt*0.004;});
+  if(waterNormA){waterNormA.offset.x+=dt*0.03;waterNormA.offset.y+=dt*0.05;}
+  if(waterMesh){waterMesh.material.roughness=0.55+wet*0.3;waterMesh.material.metalness=0;
+    waterMesh.material.normalScale.setScalar(0.5+Math.sin(_ambT*0.5)*0.06+rain*0.6);}
+  renderer.toneMappingExposure=0.66+s.day*0.19-wet*0.12;
+}
+
+/* =============================== DRIVING (road-space) + COLLISION =============================== */
+function updateCar(dt){
+  const birdMode=camMode===3;
+  const accel=(!birdMode&&(keys['w']||keys['arrowup']))?1:0;
+  const brake=(!birdMode&&(keys['s']||keys['arrowdown']))?1:0;
+  const left =(!birdMode&&(keys['a']||keys['arrowleft']))?1:0;
+  const right=(!birdMode&&(keys['d']||keys['arrowright']))?1:0;
+  const hand=keys[' ']?1:0;
+
+  // longitudinal (gear affects acceleration & top speed)
+  const G=GEARS[car.gear]||GEARS[2];
+  const effMax=MAX_SPEED*G.m, effAccel=ACCEL*G.a;
+  if(accel){const room=1-Math.min(1,Math.max(0,car.speed)/effMax);car.speed+=effAccel*dt*(0.15+0.85*room);}
+  if(brake)car.speed-=BRAKE_DECEL*dt;
+  if(!accel&&!brake)car.speed-=car.speed*FRICTION*dt;
+  if(hand)car.speed-=car.speed*3.0*dt;
+  if(car.speed>effMax)car.speed-=(car.speed-effMax)*Math.min(1,dt*3);  // engine-brake on downshift + trim overshoot
+  car.speed=Math.max(-REVERSE,car.speed);
+
+  // steering -> heading. Smoothed input + speed-sensitive authority = planted, no fishtail.
+  const steerIn=right-left;
+  car.steer+=(steerIn-car.steer)*Math.min(1,dt*9);          // ease the wheel
+  const spd=car.speed;
+  const spdN=Math.min(1,Math.abs(spd)/MAX_SPEED);
+  const authority=TURN*(0.55+0.45*(1-spdN))*Math.min(1,Math.abs(spd)/5); // gentler at speed
+  car.head+=car.steer*authority*dt*(spd>=0?1:-1);
+  // continuously ease heading back to the road line (kills wobble/crab)
+  car.head-=car.head*ALIGN*dt*(0.45+0.55*(1-Math.abs(car.steer)));
+  car.head=Math.max(-HEAD_CLAMP,Math.min(HEAD_CLAMP,car.head));
+
+  // integrate in road space
+  const ds=spd*Math.cos(car.head)*dt;
+  const dx=spd*Math.sin(car.head)*dt;
+  car.s+=ds; car.x+=dx;
+
+  // barrier collision — clamp and straighten (no snap/flip)
+  if(car.x>LANE_LIMIT){car.x=LANE_LIMIT; if(car.head>0)car.head*=0.2; car.speed*=0.94;}
+  if(car.x<-LANE_LIMIT){car.x=-LANE_LIMIT; if(car.head<0)car.head*=0.2; car.speed*=0.94;}
+
+  // traffic collision — can't drive through cars; steer around to pass
+  for(const tcar of trafficCars){
+    if(!tcar.group.visible)continue;
+    const relS=car.s - tcar.s;             // >0 => player ahead
+    const relX=car.x - tcar.x;
+    const gapS=(player.len+tcar.len)/2;
+    const gapX=(player.wid+tcar.wid)/2 - 0.15;
+    if(Math.abs(relX)<gapX && relS<0 && relS>-gapS-0.4){
+      // player rear-ending traffic ahead in same lane -> block
+      car.s=tcar.s - gapS - 0.05;
+      if(car.speed>tcar.spd)car.speed=tcar.spd;
+    } else if(Math.abs(relX)<gapX && Math.abs(relS)<gapS){
+      // side overlap while alongside -> push laterally apart
+      car.x += (relX>=0?1:-1)*0.15;
+      car.x=Math.max(-LANE_LIMIT,Math.min(LANE_LIMIT,car.x));
+    }
+  }
+
+  car.s=Math.max(0,Math.min(PATH_LEN-1,car.s));
+  if(car.s>=PATH_LEN-6 && !finished){finished=true;flash('Kent Island','CROSSING COMPLETE');}
+
+  // place player + wheel spin + front-wheel steer
+  placeVehicle(player,car.s,car.x,car.head);
+  const spin=spd*dt/player.wheelR;
+  player.wheels.forEach(w=>w.rotation.x-=spin);
+  if(player.steerers)player.steerers.forEach(s=>s.rotation.y=-car.steer*0.5);
+  const braking=brake||hand;
+  player.tail.forEach(m=>m.emissiveIntensity=braking?2.4:1.0);
+  const night=Math.max(0,Math.min(1,1-skyState(timeOfDay).day*2.2))+rain*0.35;
+  player.head.forEach(m=>m.emissiveIntensity=0.5+night*2.4);
+  if(player.beam)player.beam.intensity=night*2.8;
+  M_HEADGLOW.opacity=Math.min(0.85,night*0.7);
+}
+
+/* =============================== CAMERA =============================== */
+function updateCamera(dt){
+  const f=sampleAtS(car.s);const tan=f.tan,right=f.right;const cp=player.group.position;
+  let desired=new T.Vector3(),lookAt=new T.Vector3();
+  const z=camZoom;
+  if(camMode===0){desired.copy(cp).addScaledVector(tan,-9*z).addScaledVector(UP,4.2*z);
+    lookAt.copy(cp).addScaledVector(tan,12).addScaledVector(UP,1.7);}
+  else if(camMode===1){desired.copy(cp).addScaledVector(tan,2.4).addScaledVector(UP,2.0);
+    lookAt.copy(cp).addScaledVector(tan,24).addScaledVector(UP,1.8);}
+  else{ // cinematic: orbit around the car (drag to rotate, wheel to zoom)
+    const R=16*z, cp2=Math.cos(cinePitch);
+    // orbit in the car's local frame (tan forward, right lateral, UP up)
+    const ox=Math.sin(cineYaw)*cp2, oy=Math.sin(cinePitch), oz=Math.cos(cineYaw)*cp2;
+    desired.copy(cp).addScaledVector(right,ox*R).addScaledVector(UP,Math.max(1.5,oy*R)).addScaledVector(tan,oz*R);
+    lookAt.copy(cp).addScaledVector(UP,1.2);}
+  // Bird's eye mode: high overhead, WASD pans independently
+  if(camMode===3){
+    if(!updateCamera._birdInit){updateCamera._birdX=cp.x;updateCamera._birdZ=cp.z;updateCamera._birdInit=true;}
+    const panSpd=120*dt*z;
+    if(keys['w']||keys['arrowup'])updateCamera._birdZ+=panSpd;
+    if(keys['s']||keys['arrowdown'])updateCamera._birdZ-=panSpd;
+    if(keys['a']||keys['arrowleft'])updateCamera._birdX-=panSpd;
+    if(keys['d']||keys['arrowright'])updateCamera._birdX+=panSpd;
+    const alt=80*z;
+    desired.set(updateCamera._birdX, alt, updateCamera._birdZ);
+    lookAt.set(updateCamera._birdX, 0, updateCamera._birdZ);
+  }
+  if(camMode!==3)updateCamera._birdInit=false;
+  camera.position.lerp(desired,(camMode===1||dragging)?0.7:Math.min(1,dt*2.6));
+  camera.lookAt(lookAt);
+}
+
+/* =============================== TRAFFIC UPDATE =============================== */
+function updateTraffic(dt){
+  if(!showTraffic){trafficCars.forEach(v=>v.group.visible=false);return;}
+  trafficCars.forEach(v=>{v.group.visible=true;
+    v.s+=v.spd*dt; if(v.s>PATH_LEN-6)v.s-=(PATH_LEN-400);
+    placeVehicle(v,v.s,v.x,0);
+    const spin=v.spd*dt/v.wheelR; v.wheels.forEach(w=>w.rotation.x-=spin);
+  });
+}
+
+/* =============================== HUD =============================== */
+const elSeg=document.getElementById('seg'),elBar=document.getElementById('barfill'),elPct=document.getElementById('pct'),
+      elMph=document.getElementById('mph'),elTime=document.getElementById('eTime'),elSky=document.getElementById('eSky'),
+      elEta=document.getElementById('eEta'),elSub=document.getElementById('sub'),elGear=document.getElementById('gearind');
+let bannerTimer=0;
+function flash(big,small){document.getElementById('bBig').textContent=big;document.getElementById('bSmall').textContent=small||'';
+  document.getElementById('banner').classList.add('show');bannerTimer=2.2;}
+function segmentName(z){
+  if(z<250)return['Sandy Point','WESTERN SHORE'];
+  if(z<1300)return['Western Approach','CURVE & CLIMB'];
+  if(z<2350)return['Suspension Span','WESTERN CHANNEL · 186 ft'];
+  if(z<2760)return['Deck Truss Spans','FLANKING SECTION'];
+  if(z<3200)return['Through-Truss','EASTERN CHANNEL · 58 ft'];
+  if(z<6400)return['Bay Trestle','OPEN WATER'];
+  return['Kent Island','STEVENSVILLE'];
+}
+function updateHUD(dt){
+  const z=player.group.position.z;const seg=segmentName(z);elSeg.textContent=seg[0];elSub.textContent=seg[1];
+  const miles=car.s*MILES_PER_M, total=PATH_LEN*MILES_PER_M;
+  elBar.style.width=Math.max(0,Math.min(100,(car.s/PATH_LEN)*100))+'%';
+  elPct.textContent=miles.toFixed(1)+' mi';
+  const mph=Math.abs(car.speed)*2.237;elMph.textContent=Math.round(mph);
+  if(elGear)elGear.textContent='GEAR '+car.gear;
+  const hh=Math.floor((timeOfDay*24)%24),mm=Math.floor((timeOfDay*24*60)%60);
+  elTime.textContent=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0');
+  const st=skyState(timeOfDay);
+  elSky.textContent=rain>0.5?'Rain':(st.horizon>0.4?(st.day>0.5?'Sunset':'Sunrise'):(st.day>0.5?'Clear':'Night'));
+  const remain=PATH_LEN-car.s;const eta=(car.speed>1)?remain/car.speed:NaN;
+  elEta.textContent=finished?'Arrived':(isFinite(eta)?Math.floor(eta/60)+':'+String(Math.floor(eta%60)).padStart(2,'0'):'—');
+  if(bannerTimer>0){bannerTimer-=dt;if(bannerTimer<=0)document.getElementById('banner').classList.remove('show');}
+}
+
+/* =============================== LOOP =============================== */
+function animate(){
+  requestAnimationFrame(animate);
+  let dt=clock.getDelta();dt=Math.min(dt,0.05);
+  if(car.started&&!finished)updateCar(dt);
+  else placeVehicle(player,car.s,car.x,car.head);
+  updateCamera(dt);updateTraffic(dt);updateEnvironment(dt);updateRain(dt);updateHUD(dt);
+  renderer.render(scene,camera);
+}
+init();
+</script>
