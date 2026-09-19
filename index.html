@@ -149,7 +149,8 @@ const MAX_SPEED=30, REVERSE=7, ACCEL=12, BRAKE_DECEL=22, FRICTION=0.55,
 // environment
 let timeOfDay=0.42, autoTime=false, rain=0, rainTarget=0;
 
-let sky,sunMesh,sunLight,hemi,amb,starField,waterMesh;
+let sky,sunMesh,moonMesh,sunLight,hemi,amb,starField,waterMesh;
+let FRAME=0, gpuTier=1;
 let clouds=[];
 let boats=[], gulls=[];
 let rainSys=null; const WATER_ANIM=[];
@@ -158,10 +159,11 @@ let player;             // player vehicle object
 
 /* =============================== TEXTURES =============================== */
 function cvs(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+const TEX_ALL=[];
 function tex(c,rx,ry){const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;
-  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;t.encoding=T.sRGBEncoding;return t;}
+  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;t.encoding=T.sRGBEncoding;TEX_ALL.push(t);return t;}
 function texL(c,rx,ry){const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;
-  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;return t;}   // linear (data/bump)
+  if(rx||ry)t.repeat.set(rx||1,ry||1);t.anisotropy=4;TEX_ALL.push(t);return t;}   // linear (data/bump)
 function noiseFill(ctx,w,h,base,amp){const img=ctx.createImageData(w,h),d=img.data;
   const br=parseInt(base.slice(1,3),16),bg=parseInt(base.slice(3,5),16),bb=parseInt(base.slice(5,7),16);
   for(let i=0;i<d.length;i+=4){const n=(Math.random()-.5)*amp;
@@ -241,21 +243,6 @@ function foamTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');const cx=s/2,
   x.globalAlpha=0.6;for(let i=0;i<50;i++){const a=Math.random()*6.28,rr=r*(0.4+Math.random()*0.22);
     x.fillStyle='rgba(255,255,255,0.5)';x.beginPath();x.arc(cx+Math.cos(a)*rr,cx+Math.sin(a)*rr,0.8+Math.random()*1.8,0,6.28);x.fill();}
   x.globalAlpha=1;return texL(c,1,1);}
-function waterTexture(){const w=256,h=256,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#3c5f64',20);
-  x.globalAlpha=.10;for(let i=0;i<600;i++){x.fillStyle=Math.random()>.5?'#4a7176':'#2e4d52';x.fillRect(Math.random()*w,Math.random()*h,2,1);}
-  x.globalAlpha=1;return tex(c,120,120);}
-// procedural wave normal map: sum of a few directional sine ripples encoded as a normal map
-function waterNormalTexture(){const s=256,c=cvs(s,s),x=c.getContext('2d');const img=x.createImageData(s,s),d=img.data;
-  const waves=[[0.09,0.05,1.0],[-0.05,0.11,0.7],[0.14,-0.08,0.5],[0.03,0.19,0.35]];
-  for(let j=0;j<s;j++)for(let i=0;i<s;i++){
-    let nx=0,nz=0;
-    for(const wv of waves){const ph=(i*wv[0]+j*wv[1]);nx+=Math.cos(ph)*wv[0]*wv[2];nz+=Math.cos(ph)*wv[1]*wv[2];}
-    const k=(j*s+i)*4;
-    d[k]=Math.max(0,Math.min(255,128+nx*90));
-    d[k+1]=Math.max(0,Math.min(255,128+nz*90));
-    d[k+2]=255;d[k+3]=255;
-  }
-  x.putImageData(img,0,0);return texL(c,90,90);}
 function sandTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#c9b483',20);return tex(c,40,40);}
 function grassTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#6f7d54',26);
   x.globalAlpha=.15;for(let i=0;i<300;i++){x.fillStyle=Math.random()>.5?'#5a6743':'#84925f';x.fillRect(Math.random()*w,Math.random()*h,2,2);}
@@ -304,6 +291,21 @@ function cloudTexture(seed){const w=320,h=160,c=cvs(w,h),x=c.getContext('2d');
   return new T.CanvasTexture(c);}
 // pool of 6 distinct cloud textures so no two clouds in the sky look identical
 const T_CLOUD_POOL=[cloudTexture(11),cloudTexture(47),cloudTexture(89),cloudTexture(133),cloudTexture(211),cloudTexture(307)];
+function moonTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
+  x.clearRect(0,0,s,s);
+  const g=x.createRadialGradient(s*0.42,s*0.40,4,s*0.5,s*0.5,s*0.5);
+  g.addColorStop(0,'rgba(255,252,240,1)');g.addColorStop(0.62,'rgba(232,231,222,1)');
+  g.addColorStop(0.88,'rgba(198,201,203,1)');g.addColorStop(1,'rgba(180,186,192,0)');
+  x.fillStyle=g;x.beginPath();x.arc(s/2,s/2,s*0.46,0,7);x.fill();
+  // maria: a handful of soft grey blotches so it is not a blank disc
+  x.globalCompositeOperation='source-atop';
+  for(let i=0;i<9;i++){const a=Math.random()*6.28,r=Math.random()*s*0.33;
+    const px=s/2+Math.cos(a)*r,py=s/2+Math.sin(a)*r,rr=5+Math.random()*15;
+    const mg=x.createRadialGradient(px,py,0,px,py,rr);
+    mg.addColorStop(0,'rgba(150,157,166,0.40)');mg.addColorStop(1,'rgba(150,157,166,0)');
+    x.fillStyle=mg;x.beginPath();x.arc(px,py,rr,0,7);x.fill();}
+  x.globalCompositeOperation='source-over';
+  return new T.CanvasTexture(c);}
 function wispTexture(){const s=256,c=cvs(s,s),x=c.getContext('2d');
   for(let k=0;k<10;k++){const cy=s*0.4+Math.random()*s*0.2;
     const gg=x.createRadialGradient(s*0.5,cy,4,s*0.5,cy,s*0.42);
@@ -311,6 +313,7 @@ function wispTexture(){const s=256,c=cvs(s,s),x=c.getContext('2d');
     x.save();x.translate(s*0.5,cy);x.scale(1,0.16);x.translate(-s*0.5,-cy);
     x.fillStyle=gg;x.beginPath();x.arc(s*0.5,cy,s*0.42,0,7);x.fill();x.restore();}
   return new T.CanvasTexture(c);}
+const T_MOON=moonTexture();
 const T_ROAD=roadTexture(),T_BARR=concreteTexture('#d0d4d6'),T_PIER=concreteTexture('#c4c8cb'),
       T_STEEL=steelTexture(),T_SAND=sandTexture(),T_GRASS=grassTexture(),T_WISP=wispTexture(),T_REED=reedTexture();
 const B_ROAD=roadBump(),B_CONC=concreteBump(),B_STEEL=steelBump(),T_BLOB=blobTexture(),T_FOAM=foamTexture(),T_GLOW=glowTexture();
@@ -443,7 +446,7 @@ const M_BLOB=new T.MeshBasicMaterial({map:T_BLOB,transparent:true,depthWrite:fal
 const M_FOAM=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,depthWrite:false,fog:true});
 const M_LAMP=new T.MeshStandardMaterial({color:0x3a3d40,emissive:0xffd98a,emissiveIntensity:0,roughness:.5});
 const M_LAMPGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
-const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
+const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,color:0x6a5836,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
 const FOAM_GEO=new T.CircleGeometry(1,20);
 const GLOW_GEO=new T.CircleGeometry(1,16);
 
@@ -1435,29 +1438,79 @@ function placeVehicle(v,s,x,yaw){
 }
 
 /* =============================== SKY / WATER / LIGHTS =============================== */
+/* Colour pipeline note: every authored hex in this file is an sRGB value. The renderer
+   works in linear light, so sRGB() converts on the way in and the composite pass encodes
+   back to sRGB on the way out. Skipping that conversion is what made the old build look
+   chalky — mid-tones sat ~2.2 gamma too bright and every colour lost its saturation. */
+const sRGB=h=>new T.Color(h).convertSRGBToLinear();
 const SKY_VERT='varying vec3 vW; void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}';
-const SKY_FRAG='varying vec3 vW; uniform vec3 top; uniform vec3 bot; uniform float off; void main(){ float h=normalize(vW).y; float t=clamp((h+off)*1.1,0.0,1.0); t=pow(t,0.7); gl_FragColor=vec4(mix(bot,top,t),1.0);}';
+const SKY_FRAG=[
+'varying vec3 vW;',
+'uniform vec3 top,bot,horiz,horizOpp,sunCol,sunDir;',
+'uniform float day,haze,wet;',
+'void main(){',
+'  vec3 d=normalize(vW);',
+'  float h=d.y;',
+    // zenith -> horizon ramp, then a separate below-horizon blend so the waterline reads soft
+'  float az=dot(normalize(vec3(d.x,0.001,d.z)),normalize(vec3(sunDir.x,0.001,sunDir.z)));',
+'  vec3 hz=mix(horizOpp,horiz,smoothstep(-0.75,0.85,az));',
+'  float t=clamp((h+0.015)*1.18,0.0,1.0);',
+'  vec3 col=mix(hz,top,pow(t,0.58));',
+'  col=mix(mix(bot,hz,0.35),col,smoothstep(-0.17,0.02,h));',
+    // Mie forward-scatter: broad glow + tight aureole + the disc itself
+'  float cs=max(dot(d,normalize(sunDir)),0.0);',
+'  float mie=pow(cs,6.0)*0.26+pow(cs,60.0)*0.5+pow(cs,500.0)*1.3;',
+'  col+=sunCol*mie*(0.30+day*0.9)*(1.0-wet*0.75);',
+    // humid Chesapeake horizon band — this is what sells distance over the bay
+'  float hzb=exp(-abs(h)*7.0);',
+'  col=mix(col,hz,hzb*haze);',
+'  gl_FragColor=vec4(col,1.0);',
+'}'].join('\n');
+
 function buildSky(){
-  const geo=new T.SphereGeometry(3200,24,16);
+  const geo=new T.SphereGeometry(3200,32,20);
   const mat=new T.ShaderMaterial({vertexShader:SKY_VERT,fragmentShader:SKY_FRAG,side:T.BackSide,depthWrite:false,
-    uniforms:{top:{value:new T.Color(0x3f7fb8)},bot:{value:new T.Color(0xcfe4f0)},off:{value:0.15}}});
-  sky=new T.Mesh(geo,mat);scene.add(sky);
-  sunMesh=new T.Mesh(new T.CircleGeometry(120,24),new T.MeshBasicMaterial({color:0xfff2cf,transparent:true,opacity:.95,fog:false}));scene.add(sunMesh);
-  const sp=[];for(let i=0;i<2000;i++){const v=new T.Vector3((Math.random()-.5),Math.random()*0.9+0.05,(Math.random()-.5)).normalize().multiplyScalar(3000);sp.push(v.x,v.y,v.z);}
-  const sg=new T.BufferGeometry();sg.setAttribute('position',new T.Float32BufferAttribute(sp,3));
-  starField=new T.Points(sg,new T.PointsMaterial({color:0xffffff,size:5,transparent:true,opacity:0,fog:false}));scene.add(starField);
+    uniforms:{top:{value:sRGB(0x3f7fb8)},bot:{value:sRGB(0xcfe4f0)},horiz:{value:sRGB(0xdbe9f2)},horizOpp:{value:sRGB(0xdbe9f2)},
+              sunCol:{value:sRGB(0xffd98a)},sunDir:{value:new T.Vector3(0,1,0)},
+              day:{value:1},haze:{value:0.5},wet:{value:0}}});
+  sky=new T.Mesh(geo,mat);sky.renderOrder=-10;scene.add(sky);
+  sunMesh=new T.Mesh(new T.CircleGeometry(90,32),new T.MeshBasicMaterial({color:0xfff2cf,transparent:true,opacity:.95,fog:false,blending:T.AdditiveBlending,depthWrite:false}));
+  sunMesh.renderOrder=-9;scene.add(sunMesh);
+  // moon — a soft disc with a faint halo, visible once the sun is down
+  moonMesh=new T.Mesh(new T.CircleGeometry(52,32),new T.MeshBasicMaterial({map:T_MOON,transparent:true,opacity:0,fog:false,depthWrite:false}));
+  moonMesh.renderOrder=-9;scene.add(moonMesh);
+  // stars: varied size + brightness so the field has depth instead of reading as uniform dots
+  const sp=[],ss=[],sc=[];
+  for(let i=0;i<2600;i++){
+    const v=new T.Vector3((Math.random()-.5),Math.random()*0.92+0.04,(Math.random()-.5)).normalize().multiplyScalar(3000);
+    sp.push(v.x,v.y,v.z);
+    const mag=Math.pow(Math.random(),2.2);           // few bright, many faint
+    ss.push(1.6+mag*9);
+    const warm=0.75+Math.random()*0.25, blue=0.85+Math.random()*0.15;
+    sc.push(warm,warm*0.97+0.03,blue);
+  }
+  const sg=new T.BufferGeometry();
+  sg.setAttribute('position',new T.Float32BufferAttribute(sp,3));
+  sg.setAttribute('color',new T.Float32BufferAttribute(sc,3));
+  sg.setAttribute('size',new T.Float32BufferAttribute(ss,1));
+  starField=new T.Points(sg,new T.ShaderMaterial({
+    uniforms:{uOp:{value:0}},
+    vertexShader:'attribute float size;varying vec3 vC;void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=size;gl_Position=projectionMatrix*mv;}',
+    fragmentShader:'uniform float uOp;varying vec3 vC;void main(){vec2 q=gl_PointCoord-0.5;float d=length(q);float a=smoothstep(0.5,0.05,d);gl_FragColor=vec4(vC*a,a*uOp);}',
+    vertexColors:true,transparent:true,depthWrite:false,fog:false,blending:T.AdditiveBlending}));
+  starField.renderOrder=-9;scene.add(starField);
   // two cloud layers: broad flat cumulus lower + thin wisps higher (camera-facing billboards)
   clouds=[];
-  for(let i=0;i<14;i++){
+  for(let i=0;i<18;i++){
     const sz=380+Math.random()*560;
-    const tex=T_CLOUD_POOL[Math.floor(Math.random()*T_CLOUD_POOL.length)];
-    const m=new T.MeshBasicMaterial({map:tex,transparent:true,opacity:0.0,depthWrite:false,fog:false});
+    const tx=T_CLOUD_POOL[Math.floor(Math.random()*T_CLOUD_POOL.length)];
+    const m=new T.MeshBasicMaterial({map:tx,transparent:true,opacity:0.0,depthWrite:false,fog:false});
     const cl=new T.Mesh(new T.PlaneGeometry(sz,sz*(0.44+Math.random()*0.12)),m);cl.renderOrder=-2;
     if(Math.random()<0.5)cl.scale.x=-1;                                          // horizontal flip for variety
     cl.userData={az:Math.random()*Math.PI*2, el:0.12+Math.random()*0.55, dist:1500+Math.random()*1500, drift:0.003+Math.random()*0.008, kind:'cu', op:0.72+Math.random()*0.28};
     scene.add(cl);clouds.push(cl);
   }
-  for(let i=0;i<4;i++){
+  for(let i=0;i<5;i++){
     const sz=520+Math.random()*520;
     const m=new T.MeshBasicMaterial({map:T_WISP,transparent:true,opacity:0.0,depthWrite:false,fog:false});
     const cl=new T.Mesh(new T.PlaneGeometry(sz,sz*0.26),m);cl.renderOrder=-3;
@@ -1465,25 +1518,210 @@ function buildSky(){
     scene.add(cl);clouds.push(cl);
   }
 }
+
+/* Palette keyframes for the day cycle, authored in sRGB and converted once at load. */
+const SKYPAL={
+  nightTop:sRGB(0x060d1c), nightBot:sRGB(0x101c2e), nightHz:sRGB(0x1b2b3d),
+  dayTop:sRGB(0x2f6fb4),   dayBot:sRGB(0xbcd9ea),   dayHz:sRGB(0xdcebf3),
+  goldenTop:sRGB(0x5b4d86),goldenBot:sRGB(0xff9d5c), goldenHz:sRGB(0xffb277),
+  oppHz:sRGB(0xc08aa0), oppHzDeep:sRGB(0x6f7fae),
+  sunDay:sRGB(0xfff3d2),   sunGold:sRGB(0xff8a42),
+  lightNight:sRGB(0x2b3c56),lightDay:sRGB(0xfff4e2), lightGold:sRGB(0xffa563)
+};
 function skyState(tod){
   const ang=(tod-0.25)*Math.PI*2,elev=Math.sin(ang),azi=Math.cos(ang);
   const sunDir=new T.Vector3(azi*0.6,Math.max(-0.2,elev),0.5).normalize();
-  const day=Math.max(0,Math.min(1,(elev+0.12)/0.5)), horizon=Math.max(0,1-Math.abs(elev)/0.28)*day;
-  const cNT=new T.Color(0x0b1830),cNB=new T.Color(0x142235),cDT=new T.Color(0x3f82bd),cDB=new T.Color(0xcfe4f0),cG=new T.Color(0xff9d5c);
-  const top=cNT.clone().lerp(cDT,day),bot=cNB.clone().lerp(cDB,day);
-  bot.lerp(cG,horizon*0.55);top.lerp(cG,horizon*0.18);
-  const sunCol=new T.Color(0xffd98a).lerp(cG,horizon*0.7);
-  const lightCol=new T.Color(0x243247).lerp(new T.Color(0xfff2dc),day);lightCol.lerp(cG,horizon*0.5);
-  return {sunDir,top,bot,sunCol,lightCol,lightInt:0.12+day*1.5,ambInt:0.2+day*0.36,hemiInt:0.18+day*0.4,fog:bot.clone().lerp(top,0.25),day,horizon};
+  const day=Math.max(0,Math.min(1,(elev+0.16)/0.42));
+  const horizon=Math.max(0,1-Math.abs(elev)/0.22)*Math.min(1,day*2.4);
+  const P=SKYPAL;
+  const top=P.nightTop.clone().lerp(P.dayTop,day), bot=P.nightBot.clone().lerp(P.dayBot,day);
+  const horiz=P.nightHz.clone().lerp(P.dayHz,day);
+  const horizOpp=horiz.clone();
+  bot.lerp(P.goldenBot,horizon*0.62); horiz.lerp(P.goldenHz,horizon*0.72); top.lerp(P.goldenTop,horizon*0.30);
+  horizOpp.lerp(P.oppHz,horizon*0.40).lerp(P.oppHzDeep,horizon*0.34);
+  const sunCol=P.sunDay.clone().lerp(P.sunGold,horizon*0.85);
+  const lightCol=P.lightNight.clone().lerp(P.lightDay,day); lightCol.lerp(P.lightGold,horizon*0.6);
+  // haze thickens near sunrise/sunset and in rain; it is what gives the bay its depth
+  const haze=0.24+horizon*0.42;
+  return {sunDir,top,bot,horiz,horizOpp,sunCol,lightCol,haze,
+    lightInt:0.10+day*2.35, ambInt:0.16+day*0.40, hemiInt:0.14+day*0.46,
+    fog:horiz.clone().lerp(top,0.20), day,horizon};
 }
-let waterNormA=null;
-function buildWater(){const wt=waterTexture();
-  waterNormA=waterNormalTexture();
-  const mat=new T.MeshStandardMaterial({map:wt,normalMap:waterNormA,normalScale:new T.Vector2(0.5,0.5),
-    color:0x84a3aa,roughness:.42,metalness:0});
-  waterMesh=new T.Mesh(new T.PlaneGeometry(9000,9000,1,1),mat);waterMesh.rotation.x=-Math.PI/2;
+
+/* ------------------------------- WATER -------------------------------
+   MeshStandardMaterial (so it still receives the bridge's real cast shadow and the
+   scene IBL) with the wave surface injected via onBeforeCompile: four octaves of
+   directional ripples build the shading normal, a long swell displaces the vertices,
+   and a Blinn lobe on top adds the sun glitter that sells open water.            */
+let waterUni=null;
+function buildWater(){
+  const mat=new T.MeshStandardMaterial({color:0x16333a,roughness:0.17,metalness:0.02});
+  waterUni={uTime:{value:0},uChop:{value:1},uSunDir:{value:new T.Vector3(0,1,0)},
+            uSunCol:{value:sRGB(0xfff0cf)},uGlitter:{value:1},uSwell:{value:1}};
+  mat.onBeforeCompile=sh=>{
+    for(const k in waterUni)sh.uniforms[k]=waterUni[k];
+    sh.vertexShader='varying vec3 vWPos;\nuniform float uTime,uSwell;\n'+sh.vertexShader
+      .replace('#include <begin_vertex>',
+        ['#include <begin_vertex>',
+         // long, slow swell — small amplitude, very long wavelength; keeps the horizon alive
+         'vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;',
+         'float sw=sin(wp0.x*0.0075+uTime*0.28)*0.55+sin(wp0.z*0.0061-uTime*0.21)*0.45;',
+         'sw+=sin((wp0.x+wp0.z)*0.0037+uTime*0.15)*0.6;',
+         'transformed.z+=sw*uSwell*0.62;',   // plane is XY before the -90deg X rotation
+         'vWPos=(modelMatrix*vec4(transformed,1.0)).xyz;'].join('\n'));
+    sh.fragmentShader='varying vec3 vWPos;\nuniform float uTime,uChop,uGlitter;\nuniform vec3 uSunDir,uSunCol;\nvec3 gWaveN=vec3(0.0,1.0,0.0);\n'+sh.fragmentShader
+      .replace('#include <normal_fragment_maps>',
+        ['#include <normal_fragment_maps>',
+         '{',
+         '  vec2 p=vWPos.xz; float nx=0.0,nz=0.0;',
+         '  vec3 fr1=vec3(0.062,0.108,0.195); vec3 sp1=vec3(0.75,1.05,1.55); vec3 am1=vec3(0.50,0.36,0.24);',
+         '  vec3 fr2=vec3(0.345,0.640,1.180); vec3 sp2=vec3(2.10,3.05,4.40); vec3 am2=vec3(0.15,0.085,0.045);',
+         '  vec2 d0=vec2(0.92,0.39),d1=vec2(-0.42,0.91),d2=vec2(0.66,-0.75);',
+         '  vec2 d3=vec2(-0.86,-0.51),d4=vec2(0.31,0.95),d5=vec2(-0.97,0.24);',
+         '  float b0=dot(p,d0)*fr1.x+uTime*sp1.x; nx+=cos(b0)*fr1.x*am1.x*d0.x; nz+=cos(b0)*fr1.x*am1.x*d0.y;',
+         '  float b1=dot(p,d1)*fr1.y+uTime*sp1.y; nx+=cos(b1)*fr1.y*am1.y*d1.x; nz+=cos(b1)*fr1.y*am1.y*d1.y;',
+         '  float b2=dot(p,d2)*fr1.z+uTime*sp1.z; nx+=cos(b2)*fr1.z*am1.z*d2.x; nz+=cos(b2)*fr1.z*am1.z*d2.y;',
+         '  float w=sin(b0)*0.6+sin(b1)*0.4;',
+         '  float b3=dot(p,d3)*fr2.x+uTime*sp2.x+w*0.9; nx+=cos(b3)*fr2.x*am2.x*d3.x; nz+=cos(b3)*fr2.x*am2.x*d3.y;',
+         '  float b4=dot(p,d4)*fr2.y+uTime*sp2.y+w*1.4; nx+=cos(b4)*fr2.y*am2.y*d4.x; nz+=cos(b4)*fr2.y*am2.y*d4.y;',
+         '  float b5=dot(p,d5)*fr2.z+uTime*sp2.z+w*2.1; nx+=cos(b5)*fr2.z*am2.z*d5.x; nz+=cos(b5)*fr2.z*am2.z*d5.y;',
+         '  float dist=length(vWPos-cameraPosition);',
+         '  float det=clamp(1.0-dist/2200.0,0.05,1.0);',
+         '  vec3 wN=normalize(vec3(-nx*uChop*9.0*det,1.0,-nz*uChop*9.0*det));',
+         '  normal=normalize((viewMatrix*vec4(wN,0.0)).xyz);',
+         '  gWaveN=wN;',
+         '}'].join('\n'))
+      .replace('#include <tonemapping_fragment>',
+        [// sun glitter: a very tight Blinn lobe over the wave normal, plus a wider sheen
+         'vec3 Vw=normalize(cameraPosition-vWPos);',
+         'vec3 Lw=normalize(uSunDir);',
+         'vec3 Hw=normalize(Vw+Lw);',
+         'float ndh=max(dot(gWaveN,Hw),0.0);',
+         'float glint=pow(ndh,2600.0)*2.2+pow(ndh,420.0)*0.30;',
+         'float fres=pow(1.0-max(dot(gWaveN,Vw),0.0),4.0);',
+         'gl_FragColor.rgb+=uSunCol*glint*uGlitter*max(Lw.y,0.0);',
+         'gl_FragColor.rgb+=uSunCol*fres*0.022*uGlitter;',
+         '#include <tonemapping_fragment>'].join('\n'));
+  };
+  // enough segments for the swell to read; the ripple detail is all in the normal
+  waterMesh=new T.Mesh(new T.PlaneGeometry(9000,9000,140,140),mat);
+  waterMesh.rotation.x=-Math.PI/2;
   waterMesh.position.set(0,0,3400);waterMesh.receiveShadow=true;scene.add(waterMesh);
-  WATER_ANIM.push(wt);}
+}
+
+/* ---------------------- IMAGE-BASED LIGHTING (PMREM) ----------------------
+   A throwaway scene holding just the sky dome and a water-toned floor is convolved
+   into an irradiance/roughness cube. Everything metallic or glossy — steel, car
+   paint, glass, the water itself — reflects that instead of rendering black.   */
+let pmrem=null,envRT=null,envScene=null,envSkyMat=null,envFloor=null,lastEnvTod=-99,lastEnvReal=-99;
+function buildEnvProbe(){
+  pmrem=new T.PMREMGenerator(renderer);pmrem.compileEquirectangularShader();
+  envScene=new T.Scene();
+  envSkyMat=new T.ShaderMaterial({vertexShader:SKY_VERT,fragmentShader:SKY_FRAG,side:T.BackSide,depthWrite:false,
+    uniforms:{top:{value:new T.Color()},bot:{value:new T.Color()},horiz:{value:new T.Color()},horizOpp:{value:new T.Color()},
+              sunCol:{value:new T.Color()},sunDir:{value:new T.Vector3(0,1,0)},
+              day:{value:1},haze:{value:0.4},wet:{value:0}}});
+  envScene.add(new T.Mesh(new T.SphereGeometry(400,24,16),envSkyMat));
+  envFloor=new T.Mesh(new T.PlaneGeometry(1600,1600),new T.MeshBasicMaterial({color:new T.Color(),side:T.DoubleSide}));
+  envFloor.rotation.x=-Math.PI/2;envFloor.position.y=-2;envScene.add(envFloor);
+}
+function refreshEnvProbe(s,now){
+  if(!pmrem)return;
+  const u=envSkyMat.uniforms;
+  u.top.value.copy(s.top);u.bot.value.copy(s.bot);u.horiz.value.copy(s.horiz);u.horizOpp.value.copy(s.horizOpp);
+  u.sunCol.value.copy(s.sunCol);u.sunDir.value.copy(s.sunDir);
+  u.day.value=s.day;u.haze.value=s.haze;u.wet.value=rain;
+  envFloor.material.color.copy(s.horiz).lerp(sRGB(0x2c4a52),0.72);
+  const prev=envRT;
+  envRT=pmrem.fromScene(envScene,0.02);
+  scene.environment=envRT.texture;
+  if(prev)prev.dispose();
+  lastEnvTod=timeOfDay;lastEnvReal=now;
+}
+
+/* ------------------------- POST PROCESSING -------------------------
+   Hand-rolled because three r128's EffectComposer lives in examples/, which the CDN
+   build here does not ship. Scene -> HDR target -> bright pass -> two blur levels ->
+   composite with bloom, grade, vignette, grain, and the final sRGB encode.      */
+const POST={on:true, bloom:0.40, vignette:0.40, grain:0.018, satur:1.12};
+let rtMain=null,rtB1a=null,rtB1b=null,rtB2a=null,rtB2b=null,fsScene=null,fsCam=null,fsQuad=null;
+let matBright=null,matBlur=null,matComp=null,postOK=false;
+const FS_VERT='varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }';
+function buildPost(){
+  const type=(renderer.capabilities.isWebGL2||renderer.extensions.has('OES_texture_half_float'))?T.HalfFloatType:T.UnsignedByteType;
+  const opt={minFilter:T.LinearFilter,magFilter:T.LinearFilter,format:T.RGBAFormat,type:type,depthBuffer:true,stencilBuffer:false};
+  const w=Math.max(2,Math.floor(innerWidth*renderer.getPixelRatio())),h=Math.max(2,Math.floor(innerHeight*renderer.getPixelRatio()));
+  rtMain=new T.WebGLRenderTarget(w,h,opt);
+  const o2=Object.assign({},opt,{depthBuffer:false});
+  rtB1a=new T.WebGLRenderTarget(Math.max(2,w>>1),Math.max(2,h>>1),o2);
+  rtB1b=new T.WebGLRenderTarget(Math.max(2,w>>1),Math.max(2,h>>1),o2);
+  rtB2a=new T.WebGLRenderTarget(Math.max(2,w>>2),Math.max(2,h>>2),o2);
+  rtB2b=new T.WebGLRenderTarget(Math.max(2,w>>2),Math.max(2,h>>2),o2);
+  matBright=new T.ShaderMaterial({uniforms:{tDiffuse:{value:null},threshold:{value:1.02},softness:{value:0.7}},
+    vertexShader:FS_VERT,fragmentShader:[
+      'uniform sampler2D tDiffuse;uniform float threshold,softness;varying vec2 vUv;',
+      'void main(){vec3 c=texture2D(tDiffuse,vUv).rgb;',
+      ' float l=dot(c,vec3(0.2126,0.7152,0.0722));',
+      ' float k=smoothstep(threshold,threshold+softness,l);',
+      ' gl_FragColor=vec4(c*k,1.0);}'].join('\n')});
+  matBlur=new T.ShaderMaterial({uniforms:{tDiffuse:{value:null},dir:{value:new T.Vector2()}},
+    vertexShader:FS_VERT,fragmentShader:[
+      'uniform sampler2D tDiffuse;uniform vec2 dir;varying vec2 vUv;',
+      'void main(){vec4 s=texture2D(tDiffuse,vUv)*0.2270270270;',
+      ' s+=(texture2D(tDiffuse,vUv+dir*1.3846153846)+texture2D(tDiffuse,vUv-dir*1.3846153846))*0.3162162162;',
+      ' s+=(texture2D(tDiffuse,vUv+dir*3.2307692308)+texture2D(tDiffuse,vUv-dir*3.2307692308))*0.0702702703;',
+      ' gl_FragColor=s;}'].join('\n')});
+  matComp=new T.ShaderMaterial({uniforms:{
+      tDiffuse:{value:null},tB1:{value:null},tB2:{value:null},
+      bloomAmt:{value:POST.bloom},vig:{value:POST.vignette},grain:{value:POST.grain},
+      satur:{value:POST.satur},uTime:{value:0},aspect:{value:1}},
+    vertexShader:FS_VERT,fragmentShader:[
+      'uniform sampler2D tDiffuse,tB1,tB2;',
+      'uniform float bloomAmt,vig,grain,satur,uTime,aspect;',
+      'varying vec2 vUv;',
+      'float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}',
+      // three.js LinearToSRGB, matched exactly so disabling post looks identical in hue
+      'vec3 lin2srgb(vec3 v){return mix(pow(max(v,vec3(0.0)),vec3(0.41666))*1.055-0.055, v*12.92, vec3(lessThanEqual(v,vec3(0.0031308))));}',
+      'void main(){',
+      ' vec3 c=texture2D(tDiffuse,vUv).rgb;',
+      ' vec3 b=texture2D(tB1,vUv).rgb*0.62+texture2D(tB2,vUv).rgb*0.38;',
+      ' c+=b*bloomAmt;',
+      ' float l=dot(c,vec3(0.2126,0.7152,0.0722));',
+      ' c=mix(vec3(l),c,satur);',
+      // cool the shadows a touch, warm the highs — a light maritime grade
+      ' c+=vec3(-0.006,0.0,0.016)*(1.0-smoothstep(0.0,0.35,l));',
+      ' c+=vec3(0.012,0.004,-0.008)*smoothstep(0.55,1.4,l);',
+      ' vec2 q=(vUv-0.5)*vec2(aspect,1.0);',
+      ' c*=1.0-dot(q,q)*vig;',
+      ' c=lin2srgb(c);',
+      ' c+=(hash(vUv*vec2(1737.0,977.0)+fract(uTime))-0.5)*grain;',
+      ' gl_FragColor=vec4(c,1.0);}'].join('\n')});
+  fsScene=new T.Scene();fsCam=new T.OrthographicCamera(-1,1,1,-1,0,1);
+  fsQuad=new T.Mesh(new T.PlaneGeometry(2,2),matBright);fsScene.add(fsQuad);
+  postOK=true;
+}
+function resizePost(){
+  if(!postOK)return;
+  const w=Math.max(2,Math.floor(innerWidth*renderer.getPixelRatio())),h=Math.max(2,Math.floor(innerHeight*renderer.getPixelRatio()));
+  rtMain.setSize(w,h);
+  rtB1a.setSize(Math.max(2,w>>1),Math.max(2,h>>1));rtB1b.setSize(Math.max(2,w>>1),Math.max(2,h>>1));
+  rtB2a.setSize(Math.max(2,w>>2),Math.max(2,h>>2));rtB2b.setSize(Math.max(2,w>>2),Math.max(2,h>>2));
+}
+function blit(mat,target){fsQuad.material=mat;renderer.setRenderTarget(target);renderer.clear();renderer.render(fsScene,fsCam);}
+function renderFrame(){
+  if(!POST.on||!postOK){renderer.setRenderTarget(null);renderer.render(scene,camera);return;}
+  renderer.setRenderTarget(rtMain);renderer.clear();renderer.render(scene,camera);
+  matBright.uniforms.tDiffuse.value=rtMain.texture;                       blit(matBright,rtB1a);
+  matBlur.uniforms.tDiffuse.value=rtB1a.texture;matBlur.uniforms.dir.value.set(1/rtB1a.width,0); blit(matBlur,rtB1b);
+  matBlur.uniforms.tDiffuse.value=rtB1b.texture;matBlur.uniforms.dir.value.set(0,1/rtB1a.height);blit(matBlur,rtB1a);
+  matBlur.uniforms.tDiffuse.value=rtB1a.texture;matBlur.uniforms.dir.value.set(2/rtB2a.width,0); blit(matBlur,rtB2b);
+  matBlur.uniforms.tDiffuse.value=rtB2b.texture;matBlur.uniforms.dir.value.set(0,2/rtB2a.height);blit(matBlur,rtB2a);
+  matComp.uniforms.tDiffuse.value=rtMain.texture;
+  matComp.uniforms.tB1.value=rtB1a.texture;matComp.uniforms.tB2.value=rtB2a.texture;
+  matComp.uniforms.aspect.value=Math.max(1,innerWidth/Math.max(1,innerHeight));
+  renderer.setRenderTarget(null);fsQuad.material=matComp;renderer.render(fsScene,fsCam);
+}
+
 function buildRain(){const cnt=2600,pos=[],vel=[];
   for(let i=0;i<cnt;i++){pos.push((Math.random()-.5)*260,Math.random()*160,(Math.random()-.5)*260);vel.push(0.9+Math.random()*0.6);}
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
@@ -1541,27 +1779,50 @@ function buildWorld(){
   player.beam=beam;
   player.headPools=[];
   for(const sx of[-0.6,0.6]){const p=new T.Mesh(GLOW_GEO,M_HEADGLOW);p.rotation.x=-Math.PI/2;
-    p.position.set(sx,0.06,player.L+3.5);p.scale.set(3.4,8,1);player.group.add(p);player.headPools.push(p);}
+    p.position.set(sx,0.06,player.L+4.2);p.scale.set(2.5,6.5,1);player.group.add(p);player.headPools.push(p);}
 }
 
 /* =============================== INIT =============================== */
 function init(){
-  renderer=new T.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+  renderer=new T.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;   // soft, no VSM light-bleed
-  renderer.outputEncoding=T.sRGBEncoding;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=0.9;
-  scene=new T.Scene();scene.fog=new T.Fog(0xc7ddea,260,2200);
+  renderer.outputEncoding=T.sRGBEncoding;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.0;
+  renderer.physicallyCorrectLights=false;
+  // every canvas texture was authored at anisotropy 4; take whatever the GPU actually offers
+  const maxAniso=renderer.capabilities.getMaxAnisotropy();
+  TEX_ALL.forEach(t=>{t.anisotropy=Math.min(16,maxAniso);t.needsUpdate=true;});
+  scene=new T.Scene();
+  scene.fog=new T.Fog(0xc7ddea,260,2600);
   camera=new T.PerspectiveCamera(58,innerWidth/innerHeight,0.5,7000);camera.position.set(0,10,-14);
   amb=new T.AmbientLight(0xffffff,0.5);scene.add(amb);
   hemi=new T.HemisphereLight(0xcfe4f0,0x8a7c64,0.6);scene.add(hemi);
-  sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(3072,3072);
-  const sc=sunLight.shadow.camera;sc.near=20;sc.far=900;sc.left=-480;sc.right=480;sc.top=480;sc.bottom=-480;
-  sunLight.shadow.bias=-0.0002;sunLight.shadow.normalBias=0.02;sunLight.shadow.radius=8;
+  sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(2048,2048);
+  // A tight box that rides with the car gives far crisper shadows than one box over the whole bay.
+  const sc=sunLight.shadow.camera;sc.near=1;sc.far=700;sc.left=-150;sc.right=150;sc.top=150;sc.bottom=-150;
+  sunLight.shadow.bias=-0.0004;sunLight.shadow.normalBias=0.035;sunLight.shadow.radius=3;
   scene.add(sunLight);scene.add(sunLight.target);
   buildSky();clock=new T.Clock();buildWorld();buildRain();
+  linearizeMaterials(scene);          // authored sRGB hexes -> linear light (see sRGB() note above)
+  buildPost();buildEnvProbe();
   updateEnvironment(0);addInput();addEventListener('resize',onResize);animate();
 }
-function onResize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);}
+/* Convert every authored-sRGB material colour to linear exactly once. Textures already
+   carry sRGBEncoding, so only the flat colour/emissive tints need this. */
+function linearizeMaterials(root){
+  const seen=new Set();
+  root.traverse(o=>{
+    if(!o.material)return;
+    const ms=Array.isArray(o.material)?o.material:[o.material];
+    for(const m of ms){
+      if(!m||seen.has(m)||m.userData.__lin)continue;
+      seen.add(m);m.userData.__lin=true;
+      if(m.color)m.color.convertSRGBToLinear();
+      if(m.emissive)m.emissive.convertSRGBToLinear();
+    }
+  });
+}
+function onResize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);resizePost();}
 
 /* =============================== INPUT =============================== */
 function addInput(){
@@ -1602,41 +1863,99 @@ function addInput(){
 function updateEnvironment(dt){
   if(autoTime)timeOfDay=(timeOfDay+dt*0.012)%1;
   rain+=(rainTarget-rain)*Math.min(1,dt*1.5);
-  const s=skyState(timeOfDay);if(sky)sky.position.copy(camera.position);
-  const wet=rain;
-  sky.material.uniforms.top.value.copy(s.top.clone().lerp(new T.Color(0x5a6b78),wet*0.6));
-  sky.material.uniforms.bot.value.copy(s.bot.clone().lerp(new T.Color(0x8a97a0),wet*0.6));
-  const waterC=new T.Color(0x5c7e84).lerp(s.bot,0.15+0.5*(1-s.day));
-  // Fog: blend TOWARD water color only during the day. At night s.day=0 so fog stays as s.fog (dark night sky).
-  scene.fog.color.copy(s.fog).lerp(waterC,0.55*s.day).lerp(new T.Color(0x7d8b94),wet*0.5);
-  scene.fog.near=rain>0.5?120:180;scene.fog.far=rain>0.5?1100:1600;
-  amb.intensity=s.ambInt*(1-wet*0.25)*1.7;hemi.intensity=s.hemiInt*(1-wet*0.3)*1.6;hemi.color.copy(s.top);
-  sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.55)*0.4;
+  const s=skyState(timeOfDay);const wet=rain;
   const cx=player?player.group.position.x:0,cz=player?player.group.position.z:0;
-  const fwd=sampleAtS(car.s).tan;const tx2=cx+fwd.x*120, tz2=cz+fwd.z*120;   // aim shadow box moderately ahead
-  sunLight.position.set(tx2+s.sunDir.x*420,s.sunDir.y*420+40,tz2+s.sunDir.z*420);sunLight.target.position.set(tx2,0,tz2);
-  if(sunMesh){sunMesh.position.set(s.sunDir.x*2800,s.sunDir.y*2800,s.sunDir.z*2800+cz);sunMesh.lookAt(camera.position);
-    sunMesh.material.color.copy(s.sunCol);sunMesh.material.opacity=Math.max(0,s.day*0.9+s.horizon*0.4);sunMesh.visible=s.sunDir.y>-0.05;}
-  starField.material.opacity=Math.max(0,(1-s.day)*0.9-wet*0.5);starField.position.set(0,0,cz);
-  // clouds drift across the dome, always around the camera, facing it
-  const cloudOp=Math.max(0,0.16+s.day*0.72-wet*0.55);
+  if(sky)sky.position.copy(camera.position);
+
+  // ---- sky dome ----
+  const su=sky.material.uniforms;
+  const wetGrey=sRGB(0x63727d), wetPale=sRGB(0x93a2ab);
+  su.top.value.copy(s.top).lerp(wetGrey,wet*0.65);
+  su.bot.value.copy(s.bot).lerp(wetPale,wet*0.65);
+  su.horiz.value.copy(s.horiz).lerp(wetPale,wet*0.7);
+  su.horizOpp.value.copy(s.horizOpp).lerp(wetPale,wet*0.7);
+  su.sunCol.value.copy(s.sunCol);su.sunDir.value.copy(s.sunDir);
+  su.day.value=s.day;su.haze.value=s.haze+wet*0.35;su.wet.value=wet;
+
+  // ---- fog: tuned to the horizon band so distant geometry dissolves into the sky ----
+  const waterC=sRGB(0x2f5058).lerp(s.horiz,0.16+0.30*(1-s.day));
+  scene.fog.color.copy(s.fog).lerp(waterC,0.42*s.day).lerp(sRGB(0x7d8b94),wet*0.55);
+  scene.fog.near=rain>0.5?110:200;scene.fog.far=rain>0.5?1150:2400;
+
+  // ---- lights ----
+  amb.intensity=s.ambInt*(1-wet*0.25)*0.55;
+  hemi.intensity=s.hemiInt*(1-wet*0.30)*0.80;
+  hemi.color.copy(s.horiz);hemi.groundColor.copy(sRGB(0x4a4535).lerp(s.horiz,0.25));
+  sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.6);
+  // Shadow box rides just ahead of the car. Small box + 2k map = sharp contact shadows.
+  const fwd=sampleAtS(car.s).tan;
+  const fx=cx+fwd.x*55, fz=cz+fwd.z*55, fy=player?player.group.position.y:0;
+  sunLight.position.set(fx+s.sunDir.x*300, fy+s.sunDir.y*300+30, fz+s.sunDir.z*300);
+  sunLight.target.position.set(fx,fy,fz);
+  sunLight.shadow.camera.updateProjectionMatrix();
+
+  // ---- sun / moon discs ----
+  if(sunMesh){
+    sunMesh.position.set(camera.position.x+s.sunDir.x*2800, s.sunDir.y*2800, camera.position.z+s.sunDir.z*2800);
+    sunMesh.lookAt(camera.position);
+    sunMesh.material.color.copy(s.sunCol).multiplyScalar(1.5);
+    sunMesh.material.opacity=Math.max(0,(0.35+s.day*0.6))*(1-wet*0.8);
+    sunMesh.visible=s.sunDir.y>-0.04;
+  }
+  if(moonMesh){
+    const md=s.sunDir.clone().multiplyScalar(-1);     // opposite the sun
+    moonMesh.position.set(camera.position.x+md.x*2700, md.y*2700, camera.position.z+md.z*2700);
+    moonMesh.lookAt(camera.position);
+    moonMesh.material.opacity=Math.max(0,Math.min(1,(0.34-s.day)/0.30))*(1-wet*0.85);
+    moonMesh.visible=md.y>0.02&&moonMesh.material.opacity>0.01;
+  }
+  const nightF=Math.max(0,Math.min(1,(0.20-s.day)/0.20));
+  starField.material.uniforms.uOp.value=Math.max(0,nightF*0.95-wet*0.6);
+  starField.position.copy(camera.position);
+
+  // ---- clouds ----
+  const cloudOp=Math.max(0,0.16+s.day*0.72-wet*0.35);
+  const cloudLit=sRGB(0x2a3a4d).lerp(new T.Color(1,1,1),0.25+s.day*0.75)
+                   .lerp(s.sunCol,s.horizon*0.6).lerp(sRGB(0x8d9ba6),wet*0.6);
   for(const cl of clouds){cl.userData.az+=dt*cl.userData.drift;
     const az=cl.userData.az,el=cl.userData.el,d=cl.userData.dist;
     cl.position.set(camera.position.x+Math.cos(az)*d, 120+Math.sin(el)*d*0.5, camera.position.z+Math.sin(az)*d);
     cl.lookAt(camera.position);cl.material.opacity=cloudOp*(cl.userData.op||1)*(cl.userData.kind==='wisp'?0.6:1);
-    cl.material.color.copy(new T.Color(0xffffff).lerp(s.bot,0.22).lerp(new T.Color(0x9fb0bd),wet*0.5));}
+    cl.material.color.copy(cloudLit);}
+
   updateAmbience(dt,s,wet);
-  // street lamps + their road pools glow at night
-  const night=Math.max(0,Math.min(1,1-s.day*2.2))+wet*0.3;
-  M_LAMP.emissiveIntensity=night*1.6;
+
+  // ---- night lighting ----
+  const night=Math.max(0,Math.min(1,(0.34-s.day)/0.30))+wet*0.3;
+  M_LAMP.emissiveIntensity=night*2.4;
   M_LAMPGLOW.opacity=Math.min(0.8,night*0.6);
-  if(waterMesh){waterMesh.material.color.copy(new T.Color(0x5c7e84).lerp(s.bot,0.15+0.5*(1-s.day)).lerp(new T.Color(0x3a4a50),wet*0.5));
-    waterMesh.position.z=cz;waterMesh.position.x=cx;}
-  WATER_ANIM.forEach(t=>{t.offset.y-=dt*(0.01+rain*0.04);t.offset.x+=dt*0.004;});
-  if(waterNormA){waterNormA.offset.x+=dt*0.03;waterNormA.offset.y+=dt*0.05;}
-  if(waterMesh){waterMesh.material.roughness=0.55+wet*0.3;waterMesh.material.metalness=0;
-    waterMesh.material.normalScale.setScalar(0.5+Math.sin(_ambT*0.5)*0.06+rain*0.6);}
-  renderer.toneMappingExposure=0.66+s.day*0.19-wet*0.12;
+
+  // ---- water ----
+  if(waterMesh){
+    waterMesh.position.x=cx;waterMesh.position.z=cz;
+    const wc=sRGB(0x123036).lerp(s.horiz,0.04+0.13*(1-s.day)).lerp(sRGB(0x232e34),wet*0.55);
+    waterMesh.material.color.copy(wc);
+    waterMesh.material.roughness=0.22+wet*0.28;
+    waterMesh.material.envMapIntensity=0.20+s.day*0.16;
+    if(waterUni){
+      waterUni.uTime.value+=dt*(1+rain*0.9);
+      waterUni.uChop.value=0.85+rain*1.5;
+      waterUni.uSwell.value=1+rain*1.2;
+      waterUni.uSunDir.value.copy(s.sunDir);
+      waterUni.uSunCol.value.copy(s.sunCol);
+      waterUni.uGlitter.value=(0.18+s.day*0.62)*(1-wet*0.75);
+    }
+  }
+
+  // ---- image-based lighting: re-bake when the sun has moved enough to matter ----
+  const now=performance.now();
+  if(pmrem&&(lastEnvTod<-90||(Math.abs(timeOfDay-lastEnvTod)>0.012&&now-lastEnvReal>400)))refreshEnvProbe(s,now);
+
+  // ---- exposure + grade ----
+  renderer.toneMappingExposure=(0.70+s.day*0.30-wet*0.12);
+  if(matComp){matComp.uniforms.uTime.value=now*0.001;
+    matComp.uniforms.bloomAmt.value=POST.bloom*(0.75+s.horizon*0.75+(1-s.day)*0.35);
+    matComp.uniforms.satur.value=POST.satur-wet*0.16;}
 }
 
 /* =============================== DRIVING (road-space) + COLLISION =============================== */
@@ -1780,7 +2099,8 @@ function updateHUD(dt){
   const hh=Math.floor((timeOfDay*24)%24),mm=Math.floor((timeOfDay*24*60)%60);
   elTime.textContent=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0');
   const st=skyState(timeOfDay);
-  elSky.textContent=rain>0.5?'Rain':(st.horizon>0.4?(st.day>0.5?'Sunset':'Sunrise'):(st.day>0.5?'Clear':'Night'));
+  const pm=(timeOfDay%1)>0.5;
+  elSky.textContent=rain>0.5?'Rain':(st.day<0.12?'Night':(st.horizon>0.35?(pm?'Sunset':'Sunrise'):(st.day<0.45?(pm?'Dusk':'Dawn'):'Clear')));
   const remain=PATH_LEN-car.s;const eta=(car.speed>1)?remain/car.speed:NaN;
   elEta.textContent=finished?'Arrived':(isFinite(eta)?Math.floor(eta/60)+':'+String(Math.floor(eta%60)).padStart(2,'0'):'—');
   if(bannerTimer>0){bannerTimer-=dt;if(bannerTimer<=0)document.getElementById('banner').classList.remove('show');}
@@ -1793,7 +2113,7 @@ function animate(){
   if(car.started&&!finished)updateCar(dt);
   else placeVehicle(player,car.s,car.x,car.head);
   updateCamera(dt);updateTraffic(dt);updateEnvironment(dt);updateRain(dt);updateHUD(dt);
-  renderer.render(scene,camera);
+  FRAME++;renderFrame();
 }
 init();
 </script>
