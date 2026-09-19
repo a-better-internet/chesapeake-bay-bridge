@@ -179,35 +179,132 @@ function noiseFill(ctx,w,h,base,amp){const img=ctx.createImageData(w,h),d=img.da
 function crack(x,x0,y0,len,ang,w){x.strokeStyle='rgba(30,32,34,'+(0.35+Math.random()*0.3)+')';x.lineWidth=w||1;
   x.beginPath();x.moveTo(x0,y0);let px=x0,py=y0;const segs=4+Math.floor(Math.random()*4);
   for(let k=0;k<segs;k++){ang+=(Math.random()-.5)*0.9;px+=Math.cos(ang)*len/segs;py+=Math.sin(ang)*len/segs;x.lineTo(px,py);}x.stroke();}
+/* One texture tile covers 6 m along the road and the full 10.8 m carriageway width, so
+   vertical detail lands at ~170 px/m and horizontal at ~24 px/m. Transverse features
+   (tining, seams, patch edges) therefore stay crisp, which is why the detail here is built
+   mostly out of them. Regular transverse joints are deliberately absent — at a 6 m tile
+   they would read as a ladder; the 3D expansion joints carry that job instead. */
 function roadTexture(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
-  noiseFill(x,w,h,'#8b8f92',22);
-  // mottled tonal patches (repairs / staining)
-  for(let i=0;i<26;i++){x.globalAlpha=.05+Math.random()*.08;x.fillStyle=Math.random()>.5?'#6c6f72':'#a2a6a9';
-    const px=Math.random()*w,py=Math.random()*h,pw=20+Math.random()*80,ph=30+Math.random()*140;x.fillRect(px,py,pw,ph);}
-  // tire wear paths
-  x.globalAlpha=.10;x.fillStyle='#6f7275';x.fillRect(w*0.28,0,18,h);x.fillRect(w*0.62,0,18,h);
-  // cracks + tar-sealed seams
-  x.globalAlpha=1;for(let i=0;i<10;i++)crack(x,Math.random()*w,Math.random()*h,60+Math.random()*120,Math.random()*Math.PI,1);
-  x.strokeStyle='rgba(24,26,28,0.5)';x.lineWidth=3;
-  for(let i=0;i<5;i++){const yy=Math.random()*h;x.beginPath();x.moveTo(0,yy);for(let xx=0;xx<=w;xx+=16)x.lineTo(xx,yy+(Math.random()-.5)*6);x.stroke();}
-  // Markings. One texture tile spans 6 m of road, so a single dash plus its gap makes a
-  // convincing broken line at highway scale.
+  noiseFill(x,w,h,'#7f8386',26);
+  // Coarse aggregate showing through the binder. Two sizes so it does not read as one grain.
+  for(let i=0;i<5200;i++){const v=96+Math.random()*78;
+    x.fillStyle='rgba('+v+','+(v+2)+','+(v+4)+',0.55)';
+    x.fillRect(Math.random()*w,Math.random()*h,1,1+Math.random()*2);}
+  for(let i=0;i<900;i++){const v=140+Math.random()*70;
+    x.fillStyle='rgba('+v+','+v+','+(v+3)+',0.38)';
+    x.fillRect(Math.random()*w,Math.random()*h,2,2+Math.random()*3);}
+  // Broom/tine finish: fine transverse grooves, jittered in spacing and strength so they
+  // never beat against the tile edges.
+  for(let y=0;y<h;y+=4+Math.random()*5){
+    x.fillStyle='rgba(72,76,79,'+(0.025+Math.random()*0.065).toFixed(3)+')';
+    x.fillRect(0,y,w,1);
+  }
+  // Paving-lane cold joints: the seams between screed passes, slightly sunken and stained.
+  for(const u of[0.24,0.52,0.79]){
+    const px=w*u+(Math.random()-0.5)*6;
+    x.fillStyle='rgba(58,62,65,0.30)';x.fillRect(px,0,2,h);
+    x.fillStyle='rgba(150,154,157,0.10)';x.fillRect(px+2,0,1,h);
+  }
+  // Patch repairs: squarish areas of newer, darker mix with a ragged sealed edge.
+  for(let i=0;i<7;i++){
+    const pw=28+Math.random()*90, ph=50+Math.random()*220;
+    const px=Math.random()*(w-pw), py=Math.random()*(h-ph);
+    x.globalAlpha=0.20+Math.random()*0.18;
+    x.fillStyle=Math.random()>.45?'#5f6367':'#9aa0a3';
+    x.fillRect(px,py,pw,ph);
+    x.globalAlpha=1;
+    x.strokeStyle='rgba(34,36,38,0.45)';x.lineWidth=2.5;
+    x.beginPath();
+    for(let k=0;k<=24;k++){
+      const f=k/24, ang=f*Math.PI*2;
+      const jx=px+pw/2+Math.cos(ang)*(pw/2)*(0.92+Math.random()*0.16);
+      const jy=py+ph/2+Math.sin(ang)*(ph/2)*(0.92+Math.random()*0.16);
+      k?x.lineTo(jx,jy):x.moveTo(jx,jy);
+    }
+    x.closePath();x.stroke();
+  }
+  // Broad tonal drift — sun bleaching, salt, old sealant — at a scale above the aggregate.
+  for(let i=0;i<22;i++){
+    const px=Math.random()*w,py=Math.random()*h,r=40+Math.random()*160;
+    const g=x.createRadialGradient(px,py,0,px,py,r);
+    const t=Math.random();
+    const col=t<0.45?'92,96,100':(t<0.8?'150,153,156':'116,110,102');
+    g.addColorStop(0,'rgba('+col+',0.16)');g.addColorStop(1,'rgba('+col+',0)');
+    x.fillStyle=g;x.beginPath();x.arc(px,py,r,0,7);x.fill();
+  }
+  // Wheel paths: polished, rubber-darkened tracks either side of each lane centre, with
+  // soft edges rather than the old hard stripes.
+  for(const u of[0.16,0.38,0.63,0.85]){
+    const px=w*u, bw=16+Math.random()*8;
+    const g=x.createLinearGradient(px-bw,0,px+bw,0);
+    g.addColorStop(0,'rgba(96,99,102,0)');g.addColorStop(0.5,'rgba(96,99,102,0.20)');
+    g.addColorStop(1,'rgba(96,99,102,0)');
+    x.fillStyle=g;x.fillRect(px-bw,0,bw*2,h);
+  }
+  // Oil and drip staining down the middle of each lane.
+  for(const u of[0.27,0.74]){
+    for(let i=0;i<26;i++){
+      const px=w*u+(Math.random()-0.5)*14, py=Math.random()*h;
+      const r=3+Math.random()*9;
+      const g=x.createRadialGradient(px,py,0,px,py,r);
+      g.addColorStop(0,'rgba(48,48,50,0.30)');g.addColorStop(1,'rgba(48,48,50,0)');
+      x.fillStyle=g;x.beginPath();x.arc(px,py,r,0,7);x.fill();
+    }
+  }
+  // Cracking, then the tar snakes poured over it.
+  for(let i=0;i<14;i++)crack(x,Math.random()*w,Math.random()*h,60+Math.random()*140,Math.random()*Math.PI,1);
+  for(let i=0;i<6;i++){
+    const yy=Math.random()*h;
+    x.strokeStyle='rgba(26,28,30,0.55)';x.lineWidth=4+Math.random()*3;
+    x.lineCap='round';
+    x.beginPath();x.moveTo(-4,yy);
+    for(let xx=0;xx<=w+4;xx+=14)x.lineTo(xx,yy+(Math.random()-.5)*9);
+    x.stroke();
+    x.strokeStyle='rgba(120,124,127,0.10)';x.lineWidth=1.5;x.stroke();
+  }
+  x.lineCap='butt';
+  // Markings. One tile spans 6 m, so a single dash plus its gap makes a convincing broken
+  // line at highway scale.
   x.globalAlpha=1;
   x.fillStyle='#d8b23f';x.fillRect(11,0,7,h);            // solid yellow left (median) edge
   x.fillStyle='#e9edef';x.fillRect(w-18,0,7,h);          // solid white right edge
   x.fillRect(w*.5-3.5,0,7,h*0.34);                       // broken white lane divider
-  // paint wear: the lines are not freshly struck
-  x.globalAlpha=.12;x.fillStyle='#6f7275';
-  for(let i=0;i<40;i++)x.fillRect(Math.random()*w,Math.random()*h,3+Math.random()*9,1+Math.random()*2);
+  // Paint wear: scuffed, and thinner where the wheels cross it.
+  x.globalAlpha=.16;x.fillStyle='#717477';
+  for(let i=0;i<70;i++)x.fillRect(Math.random()*w,Math.random()*h,3+Math.random()*10,1+Math.random()*2);
   x.globalAlpha=1;
   return tex(c,1,1);}
 function roadBump(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
   x.fillStyle='#808080';x.fillRect(0,0,w,h);
-  // aggregate speckle
-  for(let i=0;i<9000;i++){const v=110+Math.random()*90;x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(Math.random()*w,Math.random()*h,1,1);}
-  // cracks carved dark (recessed)
-  for(let i=0;i<14;i++){x.strokeStyle='rgba(40,40,40,0.9)';x.lineWidth=2;const x0=Math.random()*w,y0=Math.random()*h;
-    x.beginPath();x.moveTo(x0,y0);let px=x0,py=y0,ang=Math.random()*6.28;for(let k=0;k<6;k++){ang+=(Math.random()-.5)*0.9;px+=Math.cos(ang)*20;py+=Math.sin(ang)*20;x.lineTo(px,py);}x.stroke();}
+  // aggregate relief
+  for(let i=0;i<14000;i++){const v=104+Math.random()*100;x.fillStyle='rgb('+v+','+v+','+v+')';
+    x.fillRect(Math.random()*w,Math.random()*h,1,1+Math.random()*2);}
+  for(let i=0;i<1200;i++){const v=150+Math.random()*80;x.fillStyle='rgb('+v+','+v+','+v+')';
+    x.fillRect(Math.random()*w,Math.random()*h,2,2);}
+  // tine grooves, matching the diffuse
+  for(let y=0;y<h;y+=4+Math.random()*5){
+    x.fillStyle='rgba(74,74,74,'+(0.10+Math.random()*0.18).toFixed(3)+')';
+    x.fillRect(0,y,w,1);
+  }
+  // cold joints recessed
+  for(const u of[0.24,0.52,0.79]){x.fillStyle='rgba(60,60,60,0.7)';x.fillRect(w*u,0,2,h);}
+  // cracks carved dark
+  for(let i=0;i<18;i++){x.strokeStyle='rgba(44,44,44,0.9)';x.lineWidth=2;
+    const x0=Math.random()*w,y0=Math.random()*h;
+    x.beginPath();x.moveTo(x0,y0);let px=x0,py=y0,ang=Math.random()*6.28;
+    for(let k=0;k<6;k++){ang+=(Math.random()-.5)*0.9;px+=Math.cos(ang)*20;py+=Math.sin(ang)*20;x.lineTo(px,py);}
+    x.stroke();}
+  // tar snakes stand slightly proud of the surface
+  for(let i=0;i<6;i++){
+    const yy=Math.random()*h;
+    x.strokeStyle='rgba(176,176,176,0.75)';x.lineWidth=4+Math.random()*3;x.lineCap='round';
+    x.beginPath();x.moveTo(-4,yy);
+    for(let xx=0;xx<=w+4;xx+=14)x.lineTo(xx,yy+(Math.random()-.5)*9);
+    x.stroke();}
+  x.lineCap='butt';
+  // painted lines sit a fraction above the surface
+  x.fillStyle='rgba(190,190,190,0.55)';
+  x.fillRect(11,0,7,h);x.fillRect(w-18,0,7,h);x.fillRect(w*.5-3.5,0,7,h*0.34);
   return texL(c,1,1);}
 function concreteTexture(shade){const w=128,h=256,c=cvs(w,h),x=c.getContext('2d');
   noiseFill(x,w,h,shade||'#c9cdd0',16);
@@ -429,22 +526,81 @@ function buildBarrier(sign,ox){ox=ox||0;
     if(i<N){const a=vc,b=vc+1,cc=vc+2,d=vc+3;if(sign<0)idx.push(a,b,cc,b,d,cc);else idx.push(a,cc,b,b,cc,d);}vc+=2;}
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
   g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
-// flat dark ribbon on the water under the deck — a cheap always-visible depth cue
+/* ------------------- CAST SHADOW ON THE WATER -------------------
+   The thing that tells you a deck is 180 ft up is not the shadow's darkness, it is how far
+   the shadow sits from the deck: throw = height / tan(sun elevation). Baking that in would
+   freeze it at one time of day, so the ribbon is built once along the deck's plan line and
+   displaced in the vertex shader from the live sun direction. Each vertex also carries its
+   deck height, so the shadow hugs the trestle near shore and swings right out over the
+   channel — which is exactly what reads as altitude. */
+let shadowUni=null, aoUni=null;
 function buildDeckShadow(ox){ox=ox||0;
-  // The bridge's shadow falls on the water, offset AWAY from the sun by an amount that grows
-  // with deck height -> a tall span's shadow sits far to the side (reads as "high up").
-  const sd=(typeof skyState==='function')?skyState(timeOfDay).sunDir:new T.Vector3(0.4,0.7,0.5);
-  const gdir=new T.Vector2(-sd.x,-sd.z);if(gdir.length()<0.05)gdir.set(0.35,0.3);gdir.normalize();
-  const pos=[],uv=[],idx=[];let vc=0;const rep=1/8;
-  for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];if(P.y<1.6){continue;}
-    const off=Math.min(26,P.y*0.5);                  // offset grows with height (depth cue), but stays beside the bridge
-    const halfW=ROAD_HALF*1.75+3+P.y*0.10;            // wider so the long soft fade has room
-    const cX=P.x+R.x*ox+gdir.x*off, cZ=P.z+R.z*ox+gdir.y*off;
-    pos.push(cX+R.x*(-halfW),0.25,cZ+R.z*(-halfW), cX+R.x*halfW,0.25,cZ+R.z*halfW);
-    uv.push(0,PATH_CUM[i]*rep, 1,PATH_CUM[i]*rep);   // u across width -> soft-edge gradient
-    if(i<N&&PATH_POS[i+1].y>=1.6){const a=vc,b=vc+1,cc=vc+2,d=vc+3;idx.push(a,cc,b,b,cc,d);}vc+=2;}
-  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
-  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();return g;}
+  const pos=[],side=[],hgt=[],rgt=[],idx=[];let vc=0;
+  for(let i=0;i<=N;i++){
+    const P=PATH_POS[i],R=PATH_RIGHT[i];
+    const cX=P.x+R.x*ox, cZ=P.z+R.z*ox;
+    for(const sgn of[-1,1]){
+      pos.push(cX,0.30,cZ); side.push(sgn); hgt.push(P.y); rgt.push(R.x,R.z);
+    }
+    if(i<N){const a=vc,b=vc+1,c=vc+2,d=vc+3;idx.push(a,c,b,b,c,d);}
+    vc+=2;
+  }
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('aSide',new T.Float32BufferAttribute(side,1));
+  g.setAttribute('aHeight',new T.Float32BufferAttribute(hgt,1));
+  g.setAttribute('aRight',new T.Float32BufferAttribute(rgt,2));
+  g.setIndex(idx);
+  // the shader throws vertices up to ~300 m sideways, so the static bounds must be generous
+  g.computeBoundingSphere();g.boundingSphere.radius+=340;
+  return g;
+}
+/* Two ribbons share this shader. The sun-cast one is thrown sideways by the solar
+   elevation; the occlusion one stays put under the deck, standing in for the skylight the
+   structure blocks. The second matters because at midday the cast shadow hides under the
+   bridge, and without it the deck looks pasted onto the water again. */
+function deckShadowMaterial(o){
+  const m=new T.MeshBasicMaterial({color:o.color,transparent:true,opacity:o.opacity,
+    depthWrite:false,side:T.DoubleSide,fog:true});
+  const uni={uSunDir:{value:new T.Vector3(0,1,0)},uStrength:{value:1}};
+  if(o.ao)aoUni=uni;else shadowUni=uni;
+  m.onBeforeCompile=sh=>{
+    sh.uniforms.uSunDir=uni.uSunDir;
+    sh.uniforms.uStrength=uni.uStrength;
+    let vs=['attribute float aSide;','attribute float aHeight;','attribute vec2 aRight;',
+      'uniform vec3 uSunDir;','varying float vSide;','varying float vFade;',''].join('\n')+sh.vertexShader
+      .replace('#include <begin_vertex>',
+        ['#include <begin_vertex>',
+         'float ey=max(uSunDir.y,0.06);',
+         'vec2 sxz=uSunDir.xz;',
+         'vec2 gdir=(length(sxz)>0.001)?-normalize(sxz):vec2(0.0,1.0);',
+         // horizontal throw from the sun elevation, clamped so a low sun does not fling the
+         // ribbon past the far plane
+         'float thr=min(aHeight*length(sxz)/ey,300.0)*THROW;',
+         // the penumbra genuinely widens with distance from the caster, and the deck is not
+         // the only thing up there — trusses and towers broaden it further
+         'float halfW=WBASE+aHeight*WK;',
+         'transformed.xz+=gdir*thr+aRight*aSide*halfW;',
+         'vSide=aSide;',
+         // higher decks cast a more diffuse, lighter shadow; it fades out with a low sun
+         'vFade=mix(1.0,FADEHI,clamp(aHeight/90.0,0.0,1.0))*SUNGATE;'
+        ].join('\n'));
+    sh.vertexShader=vs.replace(/THROW/g,o.throw.toFixed(2))
+                      .replace(/WBASE/g,o.wBase.toFixed(2))
+                      .replace(/WK/g,o.wK.toFixed(3))
+                      .replace(/FADEHI/g,o.fadeHi.toFixed(2))
+                      // the cast shadow dies with a low sun; sky occlusion does not
+                      .replace(/SUNGATE/g,o.ao?'1.0':'smoothstep(0.05,0.32,uSunDir.y)');
+    sh.fragmentShader='varying float vSide;\nvarying float vFade;\nuniform float uStrength;\n'+sh.fragmentShader
+      .replace('#include <tonemapping_fragment>',
+        [// soft-shouldered profile across the width: solid core, feathered edges
+         'float t=abs(vSide);',
+         'float t2=t*t;',
+         'gl_FragColor.a*=(1.0-t2*t2)*vFade*uStrength;',
+         '#include <tonemapping_fragment>'].join('\n'));
+  };
+  return m;
+}
 // deck fascia: a downward girder face along each deck edge -> the deck reads as a THICK slab
 function buildFascia(sign,ox){ox=ox||0;const pos=[],uv=[],idx=[];let vc=0;const rep=1/3;
   for(let i=0;i<=N;i++){const P=PATH_POS[i],R=PATH_RIGHT[i];
@@ -463,20 +619,8 @@ function buildSoffit(ox){ox=ox||0;const pos=[],idx=[];let vc=0;const hw=ROAD_HAL
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setIndex(idx);g.computeVertexNormals();return g;}
 
 /* =============================== MATERIALS =============================== */
-const M_ROAD=new T.MeshStandardMaterial({map:T_ROAD,bumpMap:B_ROAD,bumpScale:0.03,roughness:.96,metalness:.02,side:T.DoubleSide,color:0x8b8e91});
-function shadowStripTexture(){const w=128,h=4,c=cvs(w,h),x=c.getContext('2d');
-  const g=x.createLinearGradient(0,0,w,0);
-  // long, gradual falloff into a soft (not fully-saturated) peak — reads as a real penumbra
-  g.addColorStop(0,   'rgba(6,16,22,0)');
-  g.addColorStop(0.15,'rgba(6,16,22,0.12)');
-  g.addColorStop(0.32,'rgba(6,16,22,0.38)');
-  g.addColorStop(0.5, 'rgba(6,16,22,0.72)');
-  g.addColorStop(0.68,'rgba(6,16,22,0.38)');
-  g.addColorStop(0.85,'rgba(6,16,22,0.12)');
-  g.addColorStop(1,   'rgba(6,16,22,0)');
-  x.fillStyle=g;x.fillRect(0,0,w,h);const t=new T.CanvasTexture(c);t.wrapS=T.ClampToEdgeWrapping;t.wrapT=T.RepeatWrapping;return t;}
-const T_WSHADOW=shadowStripTexture();
-const M_SHADOW=new T.MeshBasicMaterial({map:T_WSHADOW,color:0x0a141a,transparent:true,opacity:0.16,depthWrite:false,fog:true});
+const M_ROAD=new T.MeshStandardMaterial({map:T_ROAD,bumpMap:B_ROAD,bumpScale:0.10,roughness:.96,metalness:.02,side:T.DoubleSide,color:0x9b9ea1});
+let M_SHADOW=null;   // built lazily: it carries a sun-tracking onBeforeCompile
 const M_BARR=new T.MeshStandardMaterial({map:T_BARR,bumpMap:B_CONC,bumpScale:0.04,roughness:.9,metalness:.03,side:T.DoubleSide,color:0xd6d3c9});
 const M_PIER=new T.MeshStandardMaterial({map:T_PIER,bumpMap:B_CONC,bumpScale:0.06,roughness:.92,metalness:.03,color:0x9d9890});
 const M_STEEL=new T.MeshStandardMaterial({map:T_STEEL,bumpMap:B_STEEL,bumpScale:0.03,roughness:.62,metalness:.35});
@@ -2346,7 +2490,8 @@ let waterUni=null;
 function buildWater(){
   const mat=new T.MeshStandardMaterial({color:0x16333a,roughness:0.17,metalness:0.02});
   waterUni={uTime:{value:0},uChop:{value:1},uSunDir:{value:new T.Vector3(0,1,0)},
-            uSunCol:{value:sRGB(0xfff0cf)},uGlitter:{value:1},uSwell:{value:1}};
+            uSunCol:{value:sRGB(0xfff0cf)},uGlitter:{value:1},uSwell:{value:1},
+            uHaze:{value:sRGB(0xcfe0ea)},uHazeK:{value:0.0011},uHazeAmt:{value:0.62}};
   mat.onBeforeCompile=sh=>{
     for(const k in waterUni)sh.uniforms[k]=waterUni[k];
     sh.vertexShader='varying vec3 vWPos;\nuniform float uTime,uSwell;\n'+sh.vertexShader
@@ -2358,13 +2503,13 @@ function buildWater(){
          'sw+=sin((wp0.x+wp0.z)*0.0037+uTime*0.15)*0.6;',
          'transformed.z+=sw*uSwell*0.09;',   // plane is XY before the -90deg X rotation
          'vWPos=(modelMatrix*vec4(transformed,1.0)).xyz;'].join('\n'));
-    sh.fragmentShader='varying vec3 vWPos;\nuniform float uTime,uChop,uGlitter;\nuniform vec3 uSunDir,uSunCol;\nvec3 gWaveN=vec3(0.0,1.0,0.0);\n'+sh.fragmentShader
+    sh.fragmentShader='varying vec3 vWPos;\nuniform float uTime,uChop,uGlitter,uHazeK,uHazeAmt;\nuniform vec3 uSunDir,uSunCol,uHaze;\nvec3 gWaveN=vec3(0.0,1.0,0.0);\n'+sh.fragmentShader
       .replace('#include <normal_fragment_maps>',
         ['#include <normal_fragment_maps>',
          '{',
          '  vec2 p=vWPos.xz; float nx=0.0,nz=0.0;',
-         '  vec3 fr1=vec3(0.062,0.108,0.195); vec3 sp1=vec3(0.75,1.05,1.55); vec3 am1=vec3(0.50,0.36,0.24);',
-         '  vec3 fr2=vec3(0.345,0.640,1.180); vec3 sp2=vec3(2.10,3.05,4.40); vec3 am2=vec3(0.15,0.085,0.045);',
+         '  vec3 fr1=vec3(0.062,0.108,0.195); vec3 sp1=vec3(0.75,1.05,1.55); vec3 am1=vec3(0.22,0.21,0.19);',
+         '  vec3 fr2=vec3(0.345,0.640,1.180); vec3 sp2=vec3(2.10,3.05,4.40); vec3 am2=vec3(0.155,0.105,0.070);',
          '  vec2 d0=vec2(0.92,0.39),d1=vec2(-0.42,0.91),d2=vec2(0.66,-0.75);',
          '  vec2 d3=vec2(-0.86,-0.51),d4=vec2(0.31,0.95),d5=vec2(-0.97,0.24);',
          '  float b0=dot(p,d0)*fr1.x+uTime*sp1.x; nx+=cos(b0)*fr1.x*am1.x*d0.x; nz+=cos(b0)*fr1.x*am1.x*d0.y;',
@@ -2375,21 +2520,30 @@ function buildWater(){
          '  float b4=dot(p,d4)*fr2.y+uTime*sp2.y+w*1.4; nx+=cos(b4)*fr2.y*am2.y*d4.x; nz+=cos(b4)*fr2.y*am2.y*d4.y;',
          '  float b5=dot(p,d5)*fr2.z+uTime*sp2.z+w*2.1; nx+=cos(b5)*fr2.z*am2.z*d5.x; nz+=cos(b5)*fr2.z*am2.z*d5.y;',
          '  float dist=length(vWPos-cameraPosition);',
-         '  float det=clamp(1.0-dist/2200.0,0.05,1.0);',
-         '  vec3 wN=normalize(vec3(-nx*uChop*9.0*det,1.0,-nz*uChop*9.0*det));',
+         '  float det=clamp(1.0-dist/1500.0,0.03,1.0);',
+         '  vec3 wN=normalize(vec3(-nx*uChop*5.4*det,1.0,-nz*uChop*5.4*det));',
          '  normal=normalize((viewMatrix*vec4(wN,0.0)).xyz);',
          '  gWaveN=wN;',
          '}'].join('\n'))
       .replace('#include <tonemapping_fragment>',
-        [// sun glitter: a very tight Blinn lobe over the wave normal, plus a wider sheen
+        [// Sun glitter: a tight Blinn lobe over the wave normal. Kept deliberately weak —
+         // the additive term also feeds the bloom pass, so a strong value here reads twice.
          'vec3 Vw=normalize(cameraPosition-vWPos);',
          'vec3 Lw=normalize(uSunDir);',
          'vec3 Hw=normalize(Vw+Lw);',
          'float ndh=max(dot(gWaveN,Hw),0.0);',
-         'float glint=pow(ndh,2600.0)*2.2+pow(ndh,420.0)*0.30;',
+         'float dfar=length(vWPos-cameraPosition);',
+         // beyond ~700 m individual wavelets are sub-pixel, so the sparkle has to average out
+         'float sfade=mix(0.22,1.0,clamp(1.0-dfar/700.0,0.0,1.0));',
+         'float glint=pow(ndh,3400.0)*0.78+pow(ndh,600.0)*0.085;',
          'float fres=pow(1.0-max(dot(gWaveN,Vw),0.0),4.0);',
-         'gl_FragColor.rgb+=uSunCol*glint*uGlitter*max(Lw.y,0.0);',
-         'gl_FragColor.rgb+=uSunCol*fres*0.022*uGlitter;',
+         'gl_FragColor.rgb+=uSunCol*glint*uGlitter*sfade*max(Lw.y,0.0);',
+         'gl_FragColor.rgb+=uSunCol*fres*0.010*uGlitter;',
+         // Aerial perspective, applied on top of scene fog. Open water carries far more haze
+         // than the fog curve alone gives, and it is what makes the bay read as deep space
+         // rather than a contrasty texture laid flat under the bridge.
+         'float hz=1.0-exp(-dfar*uHazeK);',
+         'gl_FragColor.rgb=mix(gl_FragColor.rgb,uHaze,clamp(hz,0.0,1.0)*uHazeAmt);',
          '#include <tonemapping_fragment>'].join('\n'));
   };
   // enough segments for the swell to read; the ripple detail is all in the normal
@@ -2536,8 +2690,16 @@ function updateRain(dt){if(!rainSys)return;rainSys.material.opacity=0.75*rain;if
 function buildWorld(){
   buildPath();buildVegLibrary();buildPropLibrary();
   const world=new T.Group();scene.add(world);
-  // shadow ribbons on the water first (under everything) for depth
-  // (fake shadow ribbon removed — the real sun-cast shadow on the water is the sole shadow now)
+  // Cast shadows on the water, drawn first so everything else sits over them. These carry
+  // the long sun-angle throw that the 370 m shadow map cannot reach.
+  M_SHADOW=deckShadowMaterial({color:0x0c1820,opacity:0.50,throw:1,wBase:7.5,wK:0.20,fadeHi:0.62});
+  const M_DECKAO=deckShadowMaterial({color:0x0e1a22,opacity:0.34,throw:0,wBase:6.6,wK:0.085,fadeHi:0.38,ao:true});
+  for(const ox of[0,-44])for(const mat of[M_SHADOW,M_DECKAO]){
+    const sh=new T.Mesh(buildDeckShadow(ox),mat);
+    // no renderOrder override: it must stay in the transparent pass, which runs after the
+    // water writes depth, or the water simply paints over it
+    sh.frustumCulled=false;sh.userData.noBatch=true;world.add(sh);
+  }
   // deck given real thickness: soffit underside + fascia girder faces on both edges
   const sof0=new T.Mesh(buildSoffit(0),M_SOFFIT);sof0.castShadow=true;world.add(sof0);
   const fa0=new T.Mesh(buildFascia(-1,0),M_FASCIA);fa0.castShadow=true;world.add(fa0);
@@ -2599,6 +2761,7 @@ function batchStatics(root){
     const g=o.geometry;
     if(!g||!g.attributes.position)return;
     if(g.attributes.position.count>3000)return;          // leave the long ribbons alone
+    if(o.userData.noBatch)return;                        // custom vertex attributes would be dropped
     const p=new T.Vector3().setFromMatrixPosition(o.matrixWorld);
     const key=o.material.uuid+'|'+Math.round(p.x/300)+'_'+Math.round(p.z/300)+'|'
              +(o.castShadow?1:0)+(o.receiveShadow?1:0)+'|'+o.renderOrder;
@@ -2784,11 +2947,23 @@ function updateEnvironment(dt){
   const night=Math.max(0,Math.min(1,(0.34-s.day)/0.30))+wet*0.3;
   // wet surfaces: roughness drops and the sky reflection comes up
   M_ROAD.roughness=0.96-wet*0.52;M_ROAD.envMapIntensity=0.35+wet*1.25;
-  M_ROAD.color.copy(sRGB(0x8b8e91)).multiplyScalar(1-wet*0.32);
+  M_ROAD.color.copy(sRGB(0x9b9ea1)).multiplyScalar(1-wet*0.32);
   M_BARR.roughness=0.90-wet*0.34;
   M_LAMP.emissiveIntensity=night*2.4;
   for(const m of LIT_WINDOWS)m.emissiveIntensity=night*1.5;
   M_LAMPGLOW.opacity=Math.min(0.85,night*0.72);
+
+  // ---- cast shadow ribbons ----
+  if(shadowUni){
+    shadowUni.uSunDir.value.copy(s.sunDir);
+    // rain flattens the light, so the hard shadow goes with it
+    shadowUni.uStrength.value=(0.55+s.day*0.55)*(1-wet*0.85);
+  }
+  if(aoUni){
+    aoUni.uSunDir.value.copy(s.sunDir);
+    // occlusion tracks how much skylight there is to block, so it survives overcast
+    aoUni.uStrength.value=0.45+s.day*0.55;
+  }
 
   // ---- water ----
   if(waterMesh){
@@ -2804,6 +2979,10 @@ function updateEnvironment(dt){
       waterUni.uSunDir.value.copy(s.sunDir);
       waterUni.uSunCol.value.copy(s.sunCol);
       waterUni.uGlitter.value=(0.18+s.day*0.62)*(1-wet*0.75);
+      // haze toward the horizon band, thickening in rain and at the golden hours
+      waterUni.uHaze.value.copy(s.horiz).lerp(s.fog,0.35).lerp(sRGB(0x8a97a0),wet*0.6);
+      waterUni.uHazeK.value=0.0011+wet*0.0016;
+      waterUni.uHazeAmt.value=0.58+s.horizon*0.12+wet*0.22;
     }
   }
 
