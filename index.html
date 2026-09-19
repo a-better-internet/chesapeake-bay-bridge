@@ -1186,11 +1186,11 @@ function dockRun(ax,az,bx,bz,wid,group,R,y){
    Chesapeake behind a stone jetty, the toll plaza on the approach, and the Sandy
    Point Shoal Light standing offshore to the north-east.
    World frame here: +X is north, +Z is east (seaward), the roadway runs along X~0. */
-const LANDY=0.30;   // mean land level above chart datum; the swell peaks below this
+const LANDY=0.45;   // mean land level above chart datum; the swell peaks below this
 // groundPoly UV scale = (tiles per metre) / the texture's own built-in repeat
 const GRASS_UV=(1/9)/30, SAND_UV=(1/5)/40;
 const M_GRASS=new T.MeshStandardMaterial({map:T_GRASS,roughness:1,color:0xb2ae90});
-const M_SANDG=new T.MeshStandardMaterial({map:T_SAND,roughness:1,color:0xcabfa2});
+const M_SANDG=new T.MeshStandardMaterial({map:T_SAND,roughness:1,color:0xb8ae94});
 const M_DUNE =new T.MeshStandardMaterial({map:T_GRASS,roughness:1,color:0xa7a884});
 
 function buildSandyPoint(group){
@@ -1212,7 +1212,7 @@ function buildSandyPoint(group){
   // beach: a sand apron inland of the shore over the northern half
   const beach=[];
   for(let i=0;i<shore.length;i++){if(shore[i][0]<-120)break;beach.push(shore[i]);}
-  const beachBack=beach.map(p=>[p[0],p[1]-(p[0]>215&&p[0]<430?18:52)-Math.sin(p[0]*0.021)*9]).reverse();
+  const beachBack=beach.map(p=>[p[0],p[1]-(p[0]>215&&p[0]<430?14:30)-Math.sin(p[0]*0.021)*11-Math.sin(p[0]*0.073)*4]).reverse();
   group.add(groundPoly(beach.concat(beachBack),LANDY+0.02,M_SANDG,SAND_UV));
   // wet, darker sand right at the waterline
   const wet=beach.concat(beach.map(p=>[p[0],p[1]-7]).reverse());
@@ -2547,7 +2547,8 @@ function buildWorld(){
 
 /* =============================== INIT =============================== */
 function init(){
-  renderer=new T.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,powerPreference:'high-performance'});
+  renderer=new T.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,
+    powerPreference:'high-performance',logarithmicDepthBuffer:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;   // soft, no VSM light-bleed
   renderer.outputEncoding=T.sRGBEncoding;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.0;
@@ -2560,10 +2561,10 @@ function init(){
   camera=new T.PerspectiveCamera(58,innerWidth/innerHeight,0.5,7000);camera.position.set(0,10,-14);
   amb=new T.AmbientLight(0xffffff,0.5);scene.add(amb);
   hemi=new T.HemisphereLight(0xcfe4f0,0x8a7c64,0.6);scene.add(hemi);
-  sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(2048,2048);
+  sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(3072,3072);
   // A tight box that rides with the car gives far crisper shadows than one box over the whole bay.
-  const sc=sunLight.shadow.camera;sc.near=1;sc.far=900;sc.left=-260;sc.right=260;sc.top=260;sc.bottom=-260;
-  sunLight.shadow.bias=-0.0004;sunLight.shadow.normalBias=0.035;sunLight.shadow.radius=3;
+  const sc=sunLight.shadow.camera;sc.near=1;sc.far=900;sc.left=-185;sc.right=185;sc.top=185;sc.bottom=-185;
+  sunLight.shadow.bias=-0.00035;sunLight.shadow.normalBias=0.025;sunLight.shadow.radius=1.6;
   scene.add(sunLight);scene.add(sunLight.target);
   buildSky();clock=new T.Clock();buildWorld();buildRain();
   linearizeMaterials(scene);          // authored sRGB hexes -> linear light (see sRGB() note above)
@@ -2646,13 +2647,13 @@ function updateEnvironment(dt){
   scene.fog.near=rain>0.5?110:200;scene.fog.far=rain>0.5?1150:2400;
 
   // ---- lights ----
-  amb.intensity=s.ambInt*(1-wet*0.25)*0.55;
-  hemi.intensity=s.hemiInt*(1-wet*0.30)*0.80;
+  amb.intensity=s.ambInt*(1-wet*0.25)*0.40;
+  hemi.intensity=s.hemiInt*(1-wet*0.30)*0.68;
   hemi.color.copy(s.horiz);hemi.groundColor.copy(sRGB(0x4a4535).lerp(s.horiz,0.25));
   sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.6);
   // Shadow box rides just ahead of the car. Small box + 2k map = sharp contact shadows.
   const fwd=sampleAtS(car.s).tan;
-  const fx=cx+fwd.x*95, fz=cz+fwd.z*95, fy=player?player.group.position.y:0;
+  const fx=cx+fwd.x*70, fz=cz+fwd.z*70, fy=player?player.group.position.y:0;
   sunLight.position.set(fx+s.sunDir.x*400, fy+s.sunDir.y*400+30, fz+s.sunDir.z*400);
   sunLight.target.position.set(fx,fy,fz);
   sunLight.shadow.camera.updateProjectionMatrix();
