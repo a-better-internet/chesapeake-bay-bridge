@@ -124,6 +124,11 @@
 'use strict';
 const T=THREE;
 let renderer,scene,camera,clock;
+/* Colour pipeline: every authored hex in this file is an sRGB value, but the renderer
+   works in linear light. sRGB() converts on the way in; the composite pass encodes back
+   on the way out. Skipping that is what made the old build look chalky — mid-tones sat
+   ~2.2 gamma too bright and every colour lost its saturation. */
+const sRGB=h=>new T.Color(h).convertSRGBToLinear();
 
 // ---- scale: 1 unit = 1 metre. Real bridge ~6.9 km. -----------------------
 const N=900;
@@ -243,10 +248,27 @@ function foamTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');const cx=s/2,
   x.globalAlpha=0.6;for(let i=0;i<50;i++){const a=Math.random()*6.28,rr=r*(0.4+Math.random()*0.22);
     x.fillStyle='rgba(255,255,255,0.5)';x.beginPath();x.arc(cx+Math.cos(a)*rr,cx+Math.sin(a)*rr,0.8+Math.random()*1.8,0,6.28);x.fill();}
   x.globalAlpha=1;return texL(c,1,1);}
-function sandTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#c9b483',20);return tex(c,40,40);}
-function grassTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#6f7d54',26);
-  x.globalAlpha=.15;for(let i=0;i<300;i++){x.fillStyle=Math.random()>.5?'#5a6743':'#84925f';x.fillRect(Math.random()*w,Math.random()*h,2,2);}
-  x.globalAlpha=1;return tex(c,30,30);}
+function sandTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#bfae82',22);
+  // shell hash, wrack line debris and damp patches — flat sand reads as cardboard
+  x.globalAlpha=.5;for(let i=0;i<260;i++){x.fillStyle=Math.random()>.5?'#ded3b6':'#9c8d66';
+    x.fillRect(Math.random()*w,Math.random()*h,1,1);}
+  x.globalAlpha=.16;for(let i=0;i<16;i++){const px=Math.random()*w,py=Math.random()*h,r=6+Math.random()*22;
+    const g=x.createRadialGradient(px,py,0,px,py,r);
+    g.addColorStop(0,'rgba(132,118,86,0.5)');g.addColorStop(1,'rgba(132,118,86,0)');
+    x.fillStyle=g;x.beginPath();x.arc(px,py,r,0,7);x.fill();}
+  x.globalAlpha=1;return tex(c,40,40);}
+function grassTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');noiseFill(x,w,h,'#6d7850',26);
+  x.globalAlpha=.15;for(let i=0;i<300;i++){x.fillStyle=Math.random()>.5?'#586440':'#88945e';x.fillRect(Math.random()*w,Math.random()*h,2,2);}
+  // Broad soft patches: mown vs unmown, dry spots, shade. Without them a tiled lawn
+  // texture just averages out to one flat colour at any distance.
+  x.globalAlpha=1;
+  for(let i=0;i<22;i++){const px=Math.random()*w,py=Math.random()*h,r=12+Math.random()*40;
+    const g=x.createRadialGradient(px,py,0,px,py,r);
+    const t=Math.random();
+    const col=t<0.4?'120,126,84':(t<0.75?'92,102,64':'140,134,92');
+    g.addColorStop(0,'rgba('+col+',0.15)');g.addColorStop(1,'rgba('+col+',0)');
+    x.fillStyle=g;x.beginPath();x.arc(px,py,r,0,7);x.fill();}
+  return tex(c,30,30);}
 function reedTexture(){const w=64,h=64,c=cvs(w,h),x=c.getContext('2d');x.clearRect(0,0,w,h);
   const cols=['#b7a86a','#9caf6a','#c8b878','#8f9e5c','#d8c98a'];
   for(let i=0;i<46;i++){const bx=Math.random()*w,bh=h*(0.45+Math.random()*0.55);
@@ -633,453 +655,1198 @@ function gantry(i,type,group){const P=PATH_POS[i],R=PATH_RIGHT[i],Tn=PATH_TAN[i]
     else face=new T.Mesh(new T.PlaneGeometry(1.05,1.05),kind==='x'?xMat:arrowMat);
     face.position.set(cx-Tn.x*0.12,hy,cz-Tn.z*0.12);face.lookAt(cx-Tn.x*2,hy,cz-Tn.z*2);g.add(face);});
   group.add(g);}
-function makeTree(x,z,sc){const g=new T.Group();
-  const tr=box(0.4*sc,1.6*sc,0.4*sc,new T.MeshStandardMaterial({color:0x6a5236,roughness:.9}));tr.position.y=0.8*sc;g.add(tr);
-  const fm=new T.MeshStandardMaterial({color:0x5c7a48,roughness:.95});
-  for(let k=0;k<3;k++){const b=new T.Mesh(new T.SphereGeometry((1.1-k*0.18)*sc,7,6),fm);
-    b.position.y=(1.7+k*0.7)*sc;b.position.x=(Math.random()-.5)*0.4;b.castShadow=true;g.add(b);}
-  g.position.set(x,0,z);return g;}
-const M_REED=new T.MeshStandardMaterial({map:T_REED,transparent:true,alphaTest:0.4,side:T.DoubleSide,roughness:1});
-// Shared reed materials — created ONCE and reused, or a naive setup makes thousands of draw calls
-const M_REED_BASE=[
-  new T.MeshStandardMaterial({color:0xa8ac6f,roughness:1,side:T.DoubleSide}),
-  new T.MeshStandardMaterial({color:0x8b9761,roughness:1,side:T.DoubleSide}),
-  new T.MeshStandardMaterial({color:0xbdb680,roughness:1,side:T.DoubleSide}),
-  new T.MeshStandardMaterial({color:0x9ba669,roughness:1,side:T.DoubleSide})
-];
-const M_REED_SEED=new T.MeshStandardMaterial({color:0xd8c98a,roughness:1,side:T.DoubleSide});
-function makeReeds(x,z,sc){sc=sc||1;const g=new T.Group();
-  // Dense clump of individual thin stalks — no more crossed-plane billboards.
-  const stalkN=7+Math.floor(Math.random()*5);
-  const clumpR=1.5*sc;
-  for(let k=0;k<stalkN;k++){
-    const h=(0.9+Math.random()*1.1)*sc;
-    const stalk=new T.Mesh(new T.PlaneGeometry(0.06*sc,h), M_REED_BASE[k&3]);
-    const a=Math.random()*Math.PI*2, r=Math.random()*clumpR;
-    stalk.position.set(Math.cos(a)*r, h*0.5, Math.sin(a)*r);
-    stalk.rotation.y=Math.random()*Math.PI;
-    stalk.rotation.z=(Math.random()-0.5)*0.18;
-    g.add(stalk);
-  }
-  // A couple of taller feathery seed-heads for silhouette variation
-  for(let k=0;k<2;k++){
-    const h=(1.6+Math.random()*0.9)*sc;
-    const stalk=new T.Mesh(new T.PlaneGeometry(0.09*sc,h), M_REED_SEED);
-    const a=Math.random()*Math.PI*2, r=Math.random()*clumpR*0.7;
-    stalk.position.set(Math.cos(a)*r, h*0.5, Math.sin(a)*r);
-    stalk.rotation.y=Math.random()*Math.PI;
-    stalk.rotation.z=(Math.random()-0.5)*0.14;
-    g.add(stalk);
-  }
-  g.position.set(x,0.05,z);return g;}
-function buildMarina(cx,cz,rot){const g=new T.Group();
-  const white=new T.MeshStandardMaterial({color:0xf2f5f6,roughness:.8});
-  const blue=new T.MeshStandardMaterial({color:0x2f6fb0,roughness:.7});
-  const navy=new T.MeshStandardMaterial({color:0x22405f,roughness:.7});
-  const metal=new T.MeshStandardMaterial({color:0xb7c0c6,roughness:.5,metalness:.4});
-  const glass=new T.MeshStandardMaterial({color:0x2a3d47,roughness:.2,metalness:.6});
-  const red=new T.MeshStandardMaterial({color:0xc23227,roughness:.55,emissive:0x5a1009,emissiveIntensity:.35});
-  const tentM=new T.MeshStandardMaterial({color:0xf7f9fa,roughness:.9,side:T.DoubleSide});
-  // main mass: white with blue skirt + upper glass band + metal roof
-  const b1=box(26,8,15,white);b1.position.set(0,4,0);g.add(b1);
-  const skirt=box(26.3,1.6,15.3,blue);skirt.position.set(0,1.0,0);g.add(skirt);
-  const band=box(26.3,1.5,15.3,glass);band.position.set(0,5.6,0);g.add(band);
-  const roof=box(27,0.7,16,metal);roof.position.set(0,8.4,0);g.add(roof);
-  // central cupola + white pyramid roof + red LIBBEY'S sign band on the front
-  const cup=box(7,5,7,blue);cup.position.set(0,10.6,0);g.add(cup);
-  const cupR=new T.Mesh(new T.ConeGeometry(1,2.6,4),metal);cupR.rotation.y=Math.PI/4;cupR.position.set(0,14.4,0);cupR.scale.set(5.4,1,5.4);g.add(cupR);
-  const sign=box(11,2,0.5,red);sign.position.set(0,6.9,7.8);g.add(sign);
-  // octagon gazebo wing on the right
-  const wing=new T.Mesh(new T.CylinderGeometry(4.5,4.5,4,8),white);wing.position.set(16,2,4);g.add(wing);
-  const wingR=new T.Mesh(new T.ConeGeometry(5.2,2.4,8),metal);wingR.position.set(16,5.2,4);g.add(wingR);
-  // big WHITE fabric tent over the outdoor deck (angular peaks)
-  for(let k=0;k<3;k++){const peak=new T.Mesh(new T.ConeGeometry(5,2,4),tentM);peak.rotation.y=Math.PI/4;peak.position.set(-12+k*6.5,3.4,13);g.add(peak);}
-  // patio + a few chairs
-  const patio=box(22,0.3,11,new T.MeshStandardMaterial({color:0x9aa876,roughness:1}));patio.position.set(-3,0.32,14);g.add(patio);
-  for(let k=0;k<8;k++){const ch=box(0.6,0.6,0.6,k%2?blue:white);ch.position.set(-12+Math.random()*20,0.65,11+Math.random()*6);g.add(ch);}
-  // dock with pilings — on the WATER side (+Z), same side as the sign/patio/tent.
-  // After the marina is rotated so +Z faces the water, this dock extends into the water.
-  const pier=box(3.4,0.35,28,new T.MeshStandardMaterial({color:0xb59a6a,roughness:.85}));pier.position.set(0,0.55,22);g.add(pier);
-  for(let k=0;k<7;k++)for(const sx of[-1,1]){const pl=new T.Mesh(new T.CylinderGeometry(0.18,0.22,2.4,6),navy);pl.position.set(sx*1.6,0.5,10+k*4);g.add(pl);}
-  // Cross-planks on top of the pier for wooden look
-  for(let k=0;k<12;k++){const plank=box(3.2,0.05,0.5,new T.MeshStandardMaterial({color:0x9d8258,roughness:.9}));plank.position.set(0,0.73,10+k*2.2);g.add(plank);}
-  // Dock cleats + a couple of moored small skiffs at the pier end
-  for(let k=0;k<3;k++){const skiff=box(1.6,0.6,4.2,new T.MeshStandardMaterial({color:k%2?0xd5d0c0:0xe8e2d2,roughness:.75}));skiff.position.set(2.4+k*0.2,0.6,14+k*7);skiff.rotation.y=0.05*(k-1);g.add(skiff);}
-  g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
-  g.position.set(cx,0,cz);g.rotation.y=rot;return g;}
+/* =============================== VEGETATION & SCATTER ===============================
+   Anything planted by the thousand goes through here. A plant is ONE merged,
+   vertex-coloured geometry (trunk and canopy together), and identical plants are drawn
+   as a single InstancedMesh per 500 m chunk. The previous build gave every tree its own
+   Group of four meshes, which is where ~16k of the frame's draw calls were going.     */
+const M_FOLI=new T.MeshStandardMaterial({vertexColors:true,roughness:.93,metalness:0,flatShading:true});
+const M_FOLI_2S=new T.MeshStandardMaterial({vertexColors:true,roughness:.97,metalness:0,side:T.DoubleSide});
+const M_ROCKI=new T.MeshStandardMaterial({vertexColors:true,roughness:.98,metalness:0,flatShading:true});
 
-function makeHouse(wallC,roofC){const g=new T.Group();
-  const w=6+Math.random()*5, d=6+Math.random()*4, h=3+Math.random()*1.4;
-  const body=box(w,h,d,new T.MeshStandardMaterial({color:wallC,roughness:.85}));body.position.y=h/2;body.castShadow=true;body.receiveShadow=true;g.add(body);
-  const roof=new T.Mesh(new T.ConeGeometry(1,1.8,4),new T.MeshStandardMaterial({color:roofC,roughness:.85}));
-  roof.rotation.y=Math.PI/4;roof.position.y=h+0.9;roof.scale.set(w*0.62,1,d*0.62);roof.castShadow=true;g.add(roof);
-  const door=box(1,1.9,0.12,new T.MeshStandardMaterial({color:0x46351f,roughness:.7}));door.position.set(w*0.12,0.95,d/2+0.02);g.add(door);
-  for(const sx of[-1,1]){const win=box(1.1,1,0.1,new T.MeshStandardMaterial({color:0x243943,roughness:.25,metalness:.5}));win.position.set(sx*w*0.3,h*0.55,d/2+0.03);g.add(win);}
-  const step=box(w*0.5,0.3,1.2,new T.MeshStandardMaterial({color:0xbdb4a4,roughness:.9}));step.position.set(w*0.12,0.15,d/2+0.6);g.add(step);
-  return g;}
-// Kent Island: US-50/301 divided highway continues past the bridge to the horizon (work zone + marina)
-function buildKentIsland(group){
-  const eP=PATH_POS[N].clone(); const eT=PATH_TAN[N].clone();eT.y=0;eT.normalize();
-  const eR=PATH_RIGHT[N].clone();eR.y=0;eR.normalize();
-  const HALF=ROAD_HALF, roadY=0.3, L=2400, OFF=-44, startY=eP.y;
-  const at=(off,d,y)=>new T.Vector3(eP.x+eR.x*off+eT.x*d, y===undefined?roadY:y, eP.z+eR.z*off+eT.z*d);
-  function ribbon(offL,offR,y0,mat,rec){const pos=[],uv=[],idx=[];let vc=0;const rep=1/6,steps=110;
-    for(let k=0;k<=steps;k++){const f=k/steps,d=f*L;const y=(f<0.045)?startY+(y0-startY)*(f/0.045):y0;
-      pos.push(eP.x+eR.x*offL+eT.x*d,y+0.02,eP.z+eR.z*offL+eT.z*d, eP.x+eR.x*offR+eT.x*d,y+0.02,eP.z+eR.z*offR+eT.z*d);
-      uv.push(0,d*rep,1,d*rep);
-      if(k<steps){const a=vc,b=vc+1,cc=vc+2,dd=vc+3;idx.push(a,cc,b,b,cc,dd);}vc+=2;}
-    const gg=new T.BufferGeometry();gg.setAttribute('position',new T.Float32BufferAttribute(pos,3));gg.setAttribute('uv',new T.Float32BufferAttribute(uv,2));gg.setIndex(idx);gg.computeVertexNormals();
-    const m=new T.Mesh(gg,mat);if(rec)m.receiveShadow=true;group.add(m);return m;}
-  // ===== GRASS GROUND PLANE with MARINA INLET CUTOUT =====
-  // Rear edge at the bridge end. A rectangular hole is cut where the marina inlet is,
-  // so the actual bay water (waterMesh at y=0) shows THROUGH — same waves, same dynamic
-  // color as the bay. The inlet reaches back to the bridge end so it visually merges
-  // with the open water on both sides of the deck.
-  const gmid=eP.clone().addScaledVector(eT, 3000);
-  // The mesh will be positioned at (gmid.x, 0.03, gmid.z) and rotated -π/2 around X.
-  // After rotation: local +X → world +X ; local +Y → world -Z
-  // So a world point (wx, wz) has local (wx - gmid.x, gmid.z - wz).
-  // Inlet spans world X in [-134, -14], world Z in [6890, 7130]
-  //   (extends back to z=6890, PAST bridge end at 6900, so it overlaps bay water for visual continuity).
-  const gShape=new T.Shape();
-  gShape.moveTo(-3000,-3000);gShape.lineTo(3000,-3000);gShape.lineTo(3000,3000);gShape.lineTo(-3000,3000);gShape.closePath();
-  // Convert world inlet bounds to local shape coords:
-  //   lx = worldX - gmid.x    ly = gmid.z - worldZ
-  const inletX0=-134, inletX1=-14, inletZ0=6890, inletZ1=7130;
-  const hLX0=inletX0-gmid.x, hLX1=inletX1-gmid.x;   // local X of hole
-  const hLY0=gmid.z-inletZ1, hLY1=gmid.z-inletZ0;   // local Y of hole (Z is flipped)
-  const hole=new T.Path();
-  hole.moveTo(hLX0,hLY0);hole.lineTo(hLX1,hLY0);hole.lineTo(hLX1,hLY1);hole.lineTo(hLX0,hLY1);hole.closePath();
-  gShape.holes.push(hole);
-  const gGeo=new T.ShapeGeometry(gShape);
-  // Fix UVs so the grass texture tiles at the same scale as a PlaneGeometry(6000,6000) would
-  const _uv=gGeo.attributes.uv, _p=gGeo.attributes.position;
-  const uvScale=40/6000; // 40 texture repeats across 6000m plane
-  for(let i=0;i<_uv.count;i++){_uv.setXY(i, _p.getX(i)*uvScale, _p.getY(i)*uvScale);}
-  _uv.needsUpdate=true;
-  const ground=new T.Mesh(gGeo, new T.MeshStandardMaterial({map:T_GRASS,roughness:1}));
-  ground.rotation.x=-Math.PI/2;
-  ground.position.set(gmid.x, 0.03, gmid.z);
-  ground.receiveShadow=true;
-  group.add(ground);
-  // ===== SAND BEACH on the far (marina) shore of the inlet — sits on top of grass at inlet edge =====
-  const sandCenter=at(HALF+100, 115);
-  const sand=new T.Mesh(new T.PlaneGeometry(30, 240), new T.MeshStandardMaterial({map:T_SAND,roughness:1}));
-  sand.rotation.x=-Math.PI/2;sand.position.set(sandCenter.x, 0.06, sandCenter.z);group.add(sand);
-  // === Both carriageways ===
-  ribbon(-HALF, HALF, roadY, M_ROAD, true);
-  ribbon(OFF-HALF, OFF+HALF, roadY, M_ROAD, true);
-  // === Continuous Jersey-style barriers, both carriageways full length ===
-  // Ribbon-based so the barrier Y follows the road descent from startY (bridge deck height) → roadY.
-  // Starts 5m BEFORE the bridge end so it overlaps the bridge barrier (buildBarrier ends at station N),
-  // eliminating the visible gap at the touchdown.
-  function sideBarrier(offCenter){
-    const pos=[],idx=[];let vc=0;
-    const steps=60, startD=-5, endD=L+5;
-    for(let k=0;k<=steps;k++){
-      const f=k/steps, d=startD+f*(endD-startD);
-      const fL=Math.max(0, d/L);
-      const yRoad=(fL<0.045)? startY+(roadY-startY)*(fL/0.045) : roadY;
-      const p=at(offCenter, d, yRoad);
-      pos.push(p.x, yRoad+0.02, p.z,   p.x, yRoad+0.87, p.z);
-      if(k<steps){const a=vc,b=vc+1,c=vc+2,dd=vc+3;idx.push(a,c,b,b,c,dd);}
-      vc+=2;
+function part(geo,px,py,pz,sx,sy,sz,ry,tint,shade){
+  return {geo,tint,shade,m:new T.Matrix4().compose(
+    new T.Vector3(px,py,pz),
+    new T.Quaternion().setFromEuler(new T.Euler(0,ry||0,0)),
+    new T.Vector3(sx,sy===undefined?sx:sy,sz===undefined?sx:sz))};
+}
+/* Merge parts into one geometry, baking a vertical shading gradient into vertex colours.
+   That gradient is the cheap trick that stops foliage reading as plastic balls: the
+   underside of a canopy is genuinely darker than the sun-facing crown. */
+function mergeParts(parts){
+  const P=[],NN=[],UU=[],CC=[];
+  for(const p of parts){
+    const g=p.geo.index?p.geo.toNonIndexed():p.geo.clone();
+    g.applyMatrix4(p.m);
+    const pos=g.attributes.position,nor=g.attributes.normal,uv=g.attributes.uv;
+    const c=p.tint||new T.Color(1,1,1);
+    let y0=Infinity,y1=-Infinity;
+    for(let i=0;i<pos.count;i++){const y=pos.getY(i);if(y<y0)y0=y;if(y>y1)y1=y;}
+    const span=Math.max(1e-4,y1-y0);
+    for(let i=0;i<pos.count;i++){
+      P.push(pos.getX(i),pos.getY(i),pos.getZ(i));
+      if(nor)NN.push(nor.getX(i),nor.getY(i),nor.getZ(i));else NN.push(0,1,0);
+      if(uv)UU.push(uv.getX(i),uv.getY(i));else UU.push(0,0);
+      const f=p.shade?p.shade((pos.getY(i)-y0)/span):1;
+      CC.push(c.r*f,c.g*f,c.b*f);
+    }
+    g.dispose();
+  }
+  const out=new T.BufferGeometry();
+  out.setAttribute('position',new T.Float32BufferAttribute(P,3));
+  out.setAttribute('normal',new T.Float32BufferAttribute(NN,3));
+  out.setAttribute('uv',new T.Float32BufferAttribute(UU,2));
+  out.setAttribute('color',new T.Float32BufferAttribute(CC,3));
+  out.computeBoundingSphere();
+  return out;
+}
+
+/* ---- scatter registry: chunked instancing + distance/frustum culling ---- */
+const SCAT=new Map(); const SCAT_CHUNKS=[];
+function scatterAdd(kind,geo,mat,m,opt){
+  opt=opt||{};
+  const px=m.elements[12],pz=m.elements[14];
+  const key=kind+'|'+Math.floor(px/500)+'_'+Math.floor(pz/500);
+  let e=SCAT.get(key);
+  if(!e){e={geo,mat,list:[],cols:null,cast:opt.cast!==false,far:opt.far||2600};SCAT.set(key,e);}
+  e.list.push(m.clone());
+  if(opt.color){(e.cols||(e.cols=[])).push(opt.color);}
+  else if(e.cols)e.cols.push(new T.Color(1,1,1));
+}
+function scatterFlush(group){
+  SCAT.forEach(e=>{
+    const n=e.list.length;if(!n)return;
+    const im=new T.InstancedMesh(e.geo,e.mat,n);
+    const box=new T.Box3();const v=new T.Vector3();
+    for(let i=0;i<n;i++){im.setMatrixAt(i,e.list[i]);
+      v.setFromMatrixPosition(e.list[i]);box.expandByPoint(v);}
+    im.instanceMatrix.needsUpdate=true;
+    if(e.cols)for(let i=0;i<n;i++)im.setColorAt(i,e.cols[i]);
+    if(im.instanceColor)im.instanceColor.needsUpdate=true;
+    im.castShadow=e.cast;im.receiveShadow=true;
+    // r128's InstancedMesh has no computeBoundingSphere, so its own frustum test would
+    // use a single plant's bounds at the origin and cull whole chunks wrongly.
+    im.frustumCulled=false;
+    const c=box.getCenter(new T.Vector3());
+    const r=box.getSize(new T.Vector3()).length()*0.5+(e.geo.boundingSphere?e.geo.boundingSphere.radius*3:8);
+    SCAT_CHUNKS.push({mesh:im,center:c,radius:r,far:e.far});
+    group.add(im);
+  });
+  SCAT.clear();
+}
+const _frustum=new T.Frustum(),_pvm=new T.Matrix4(),_sph=new T.Sphere();
+function updateScatterCulling(){
+  if(!SCAT_CHUNKS.length)return;
+  _pvm.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
+  _frustum.setFromProjectionMatrix(_pvm);
+  const cp=camera.position;
+  for(const ch of SCAT_CHUNKS){
+    const d=cp.distanceTo(ch.center)-ch.radius;
+    if(d>ch.far){ch.mesh.visible=false;continue;}
+    _sph.center.copy(ch.center);_sph.radius=ch.radius;
+    ch.mesh.visible=_frustum.intersectsSphere(_sph);
+  }
+}
+
+/* ---- tree library: species that actually grow on the Eastern Shore ----
+   loblolly pine and eastern red cedar dominate the Kent Island treeline; red maple,
+   white oak and sweetgum fill in the hardwood rows.                                  */
+const ICO1=new T.IcosahedronGeometry(1,1), ICO0=new T.IcosahedronGeometry(1,0);
+const CONE=new T.ConeGeometry(1,1,8), CYL=new T.CylinderGeometry(1,1,1,7);
+const BARK=[sRGB(0x5a4632),sRGB(0x6b543c),sRGB(0x4d4235),sRGB(0x7a6448)];
+const canopyShade=f=>0.50+0.62*f*f;     // dark underside, bright crown
+const barkShade  =f=>0.62+0.38*f;
+
+function treeDeciduous(seed,detail,leafHex,h,spread){
+  const R=mulberry(seed); const ico=detail?ICO1:ICO0;
+  const leaf=sRGB(leafHex), bark=BARK[Math.floor(R()*4)];
+  const parts=[];
+  const th=h*0.42;
+  parts.push(part(CYL,0,th*0.5,0,h*0.031,th,h*0.031,0,bark,barkShade));
+  // two low limbs give the silhouette something other than a bare pole
+  for(let k=0;k<2;k++){
+    const a=R()*6.28, r=h*0.09;
+    parts.push(part(CYL,Math.cos(a)*r,th*0.82,Math.sin(a)*r,h*0.018,th*0.55,h*0.018,0,bark,barkShade));
+  }
+  const blobs=4+Math.floor(R()*2);
+  for(let k=0;k<blobs;k++){
+    const a=(k/blobs)*6.28+R()*0.9, r=spread*(0.20+R()*0.55);
+    const rr=spread*(0.52-k*0.045+R()*0.16);
+    parts.push(part(ico,Math.cos(a)*r,th+spread*(0.28+R()*0.62),Math.sin(a)*r,
+      rr*(1+R()*0.28),rr*(0.74+R()*0.30),rr*(1+R()*0.28),R()*3,leaf,canopyShade));
+  }
+  return mergeParts(parts);
+}
+function treePine(seed,detail,h){
+  const R=mulberry(seed);
+  const needle=sRGB([0x2f4a30,0x36542f,0x2a4433][Math.floor(R()*3)]);
+  const bark=sRGB(0x6a4e39), parts=[];
+  parts.push(part(CYL,0,h*0.34,0,h*0.021,h*0.68,h*0.021,0,bark,barkShade));
+  // loblollies carry their crown high and tiered, with a ragged top
+  const tiers=4+Math.floor(R()*2);
+  for(let k=0;k<tiers;k++){
+    const f=k/(tiers-1);
+    const y=h*(0.45+f*0.52);
+    const rr=h*(0.27-f*0.185)*(0.85+R()*0.35);
+    parts.push(part(CONE,(R()-0.5)*h*0.04,y,(R()-0.5)*h*0.04,rr,h*(0.20+R()*0.09),rr,R()*3,needle,canopyShade));
+  }
+  return mergeParts(parts);
+}
+function treeCedar(seed,detail,h){
+  const R=mulberry(seed);
+  const needle=sRGB([0x33482f,0x3d5334,0x2c3f2a][Math.floor(R()*3)]);
+  const parts=[];
+  parts.push(part(CYL,0,h*0.1,0,h*0.026,h*0.2,h*0.026,0,sRGB(0x6e5440),barkShade));
+  parts.push(part(CONE,0,h*0.56,0,h*(0.19+R()*0.05),h*0.95,h*(0.19+R()*0.05),R()*3,needle,canopyShade));
+  parts.push(part(ICO0,(R()-0.5)*h*0.1,h*0.30,(R()-0.5)*h*0.1,h*0.15,h*0.13,h*0.15,R()*3,needle,canopyShade));
+  return mergeParts(parts);
+}
+// tiny deterministic PRNG so the treeline is identical on every load
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+let TREES=[],TREES_LO=[],G_BUSH=null,G_MARSH=null,G_MARSH_LO=null,G_ROCK=[],G_PILING=null;
+function buildVegLibrary(){
+  const leafy=[0x4e6a3a,0x5c7a41,0x455f34,0x6b7a43,0x3e5c31,0x76773e];
+  TREES=[];TREES_LO=[];
+  for(let i=0;i<6;i++){TREES.push(treeDeciduous(101+i*7,1,leafy[i],9+i*1.6,4.2+i*0.5));
+                      TREES_LO.push(treeDeciduous(101+i*7,0,leafy[i],9+i*1.6,4.2+i*0.5));}
+  for(let i=0;i<3;i++){TREES.push(treePine(301+i*11,1,15+i*3.5));TREES_LO.push(treePine(301+i*11,0,15+i*3.5));}
+  for(let i=0;i<2;i++){TREES.push(treeCedar(501+i*13,1,7.5+i*2.4));TREES_LO.push(treeCedar(501+i*13,0,7.5+i*2.4));}
+
+  // low scrub: bayberry / wax myrtle clumps
+  {const R=mulberry(77),parts=[];
+   for(let k=0;k<4;k++){const a=R()*6.28,r=R()*0.55;
+     parts.push(part(ICO0,Math.cos(a)*r,0.30+R()*0.3,Math.sin(a)*r,0.55+R()*0.4,0.42+R()*0.26,0.55+R()*0.4,R()*3,
+       sRGB([0x5c7546,0x67804d,0x536b40][k%3]),f=>0.55+0.55*f));}
+   G_BUSH=mergeParts(parts);}
+
+  // Spartina marsh grass. Blades are tapered, bent wedges rather than paper planes —
+  // flat billboards were what made the old reeds read as white slashes at distance.
+  const blade=(w,h,bend)=>{
+    const seg=3,pos=[],nor=[],uv=[],idx=[];
+    for(let i=0;i<=seg;i++){
+      const f=i/seg, y=h*f, ww=w*(1-f*0.86), off=bend*f*f;
+      pos.push(-ww,y,off, ww,y,off);
+      nor.push(0,0.25,1, 0,0.25,1); uv.push(0,f,1,f);
+      if(i<seg){const a=i*2;idx.push(a,a+2,a+1, a+1,a+2,a+3);}
     }
     const g=new T.BufferGeometry();
-    g.setAttribute('position', new T.Float32BufferAttribute(pos,3));
-    g.setIndex(idx); g.computeVertexNormals();
-    const m=new T.Mesh(g, M_BARR);
-    m.castShadow=true; m.receiveShadow=true;
-    group.add(m);
-  }
-  sideBarrier(HALF);sideBarrier(-HALF);              // main span edges, matching bridge barrier offsets
-  sideBarrier(OFF+HALF);sideBarrier(OFF-HALF);       // twin span edges
-  sideBarrier(OFF/2);                                // median
-  // === Construction barrels ===
-  const rm=new T.MeshStandardMaterial({color:0xc9ced2,roughness:.5,metalness:.5,side:T.DoubleSide});
-  function barrel(x,z){const b=new T.Group();
-    const body=new T.Mesh(new T.CylinderGeometry(0.34,0.4,1.1,8),new T.MeshStandardMaterial({color:0xe8641c,roughness:.85}));body.position.y=0.55;b.add(body);
-    const st=new T.Mesh(new T.CylinderGeometry(0.42,0.42,0.18,8),new T.MeshStandardMaterial({color:0xf4f4f2,roughness:.85}));st.position.y=0.62;b.add(st);
-    b.position.set(x,roadY,z);b.children.forEach(o=>o.castShadow=true);return b;}
-  for(let d=20; d<500; d+=15){let p=at(OFF/2,d);group.add(barrel(p.x,p.z));p=at(HALF+3,d+6);group.add(barrel(p.x,p.z));}
-  // === Overhead green exit signs ===
-  function greenG(d){const c0=at(0,d),sy=roadY+7.2;
-    for(const s of[-1,1]){const p0=at(s*(HALF+1.8),d);const pp=box(0.34,7.4,0.34,rm);pp.position.set(p0.x,roadY+3.7,p0.z);group.add(pp);}
-    const span=box(HALF*2+5,0.45,0.45,rm);span.position.set(c0.x,sy,c0.z);span.lookAt(c0.x+eR.x,sy,c0.z+eR.z);group.add(span);
-    const pc=at(HALF*0.35,d);const panel=box(6,2.3,0.25,new T.MeshStandardMaterial({color:0x1f6b3a,roughness:.6}));panel.position.set(pc.x,sy-0.6,pc.z);panel.lookAt(pc.x-eT.x,sy-0.6,pc.z-eT.z);panel.castShadow=true;group.add(panel);}
-  greenG(70);greenG(420);
-  // === Streetlights ===
-  for(let d=140; d<L-120; d+=200){const p=at(OFF/2,d),a2=at(OFF/2+3,d);
-    const pole=new T.Mesh(new T.CylinderGeometry(0.13,0.18,9,6),new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4}));pole.position.set(p.x,roadY+4.5,p.z);pole.castShadow=true;group.add(pole);
-    const lamp=box(0.5,0.2,0.9,M_LAMP);lamp.position.set(a2.x,roadY+8.8,a2.z);group.add(lamp);}
-  // === RIP-RAP ROCKS along the inlet shore ===
-  const rockMats=[
-    new T.MeshStandardMaterial({color:0x525450,roughness:.98}),
-    new T.MeshStandardMaterial({color:0x6c6f68,roughness:.98}),
-    new T.MeshStandardMaterial({color:0x484b46,roughness:.98}),
-    new T.MeshStandardMaterial({color:0x7a7d76,roughness:.98})];
-  for(let d=12; d<220; d+=3){
-    const off=HALF+12+Math.random()*3;
-    const p=at(off, d+(Math.random()-0.5)*2);
-    const rockH=0.4+Math.random()*0.9;
-    const rockW=0.55+Math.random()*1.0;
-    const rock=new T.Mesh(new T.IcosahedronGeometry(rockW*0.65,0), rockMats[Math.floor(Math.random()*4)]);
-    rock.scale.set(1, rockH/(rockW*0.65), 1);
-    rock.position.set(p.x, rockH*0.4, p.z);
-    rock.rotation.set(Math.random()*0.5, Math.random()*Math.PI*2, Math.random()*0.5);
-    rock.castShadow=true; group.add(rock);
-  }
-  // === LIBBEY'S MARINA — on the far shore of the inlet ===
-  const mx=at(HALF+100, 110), mrot=Math.atan2(-eR.x,-eR.z);
-  group.add(buildMarina(mx.x, mx.z, mrot));
-  // === Boats moored in the inlet ===
-  for(let k=0;k<4;k++){
-    const mb=makeBoat(k%2?'sail':'motor');
-    const p=at(HALF+30+k*12, 40+k*35);
-    mb.group.position.set(p.x, 0, p.z);
-    mb.group.rotation.y=Math.atan2(eT.x, eT.z)+(Math.random()-0.5)*0.4;
-    group.add(mb.group);
-  }
-  // === REEDS along the Kent Island shorelines ===
-  for(let d=2; d<15; d+=1.4){
-    for(let jj=0;jj<2;jj++){
-      const off=HALF+3+Math.random()*8;
-      const p=at(off, d+(Math.random()-0.5)*1.5);
-      group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.6));
+    g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+    g.setAttribute('normal',new T.Float32BufferAttribute(nor,3));
+    g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+    g.setIndex(idx);return g;};
+  const marshClump=(n,seed)=>{
+    const R=mulberry(seed),parts=[];
+    const cols=[0x7f8a4a,0x8d9455,0x6f7c42,0xa89a5c,0x94914e];
+    for(let k=0;k<n;k++){
+      const a=R()*6.28,r=R()*0.85,h=0.75+R()*1.15;
+      parts.push(part(blade(0.075,h,0.28+R()*0.3),Math.cos(a)*r,0,Math.sin(a)*r,1,1,1,R()*6.28,
+        sRGB(cols[k%5]),f=>0.42+0.72*f));
     }
+    return mergeParts(parts);};
+  G_MARSH=marshClump(13,909); G_MARSH_LO=marshClump(5,909);
+
+  // riprap / shoreline stone
+  G_ROCK=[];
+  for(let i=0;i<4;i++){const R=mulberry(1300+i*29);
+    G_ROCK.push(mergeParts([part(ICO0,0,0.16,0,0.30+R()*0.20,0.21+R()*0.13,0.27+R()*0.19,R()*3,
+      sRGB([0x3f423e,0x4b4e48,0x35382f,0x565a52][i]),f=>0.55+0.55*f)]));}
+
+  // dock piling: creosote post with a weathered cap
+  G_PILING=mergeParts([
+    part(CYL,0,1.1,0,0.15,2.2,0.15,0,sRGB(0x4a3f33),f=>0.55+0.5*f),
+    part(CYL,0,2.24,0,0.17,0.08,0.17,0,sRGB(0x2e2a24),f=>0.9)]);
+}
+
+/* ---- planting helpers ---- */
+const _pm=new T.Matrix4(),_pq=new T.Quaternion(),_pe=new T.Euler(),_pp=new T.Vector3(),_ps=new T.Vector3();
+function plant(kind,geo,mat,x,y,z,sc,ry,tilt,color,opt){
+  _pp.set(x,y,z);_pe.set(tilt||0,ry||0,0);_pq.setFromEuler(_pe);
+  _ps.set(sc,sc,sc);_pm.compose(_pp,_pq,_ps);
+  scatterAdd(kind,geo,mat,_pm,Object.assign({color},opt));
+}
+// tint jitter keeps a thousand copies of ten geometries from reading as ten geometries
+function jitter(R,amt){const v=1-amt*0.5+R()*amt;return new T.Color(v,v*(0.98+R()*0.04),v*(0.96+R()*0.08));}
+function plantTree(x,z,sc,R,y,lo){
+  const i=Math.floor(R()*(lo?TREES_LO:TREES).length);
+  const g=lo?TREES_LO[i]:TREES[i];
+  plant('tree'+i+(lo?'L':''),g,M_FOLI,x,y===undefined?LANDY:y,z,sc,R()*6.28,0,jitter(R,0.34),{far:lo?2600:1500});
+}
+function plantMarsh(x,z,sc,R,lo){
+  plant(lo?'marshL':'marsh',lo?G_MARSH_LO:G_MARSH,M_FOLI_2S,x,0.02,z,sc,R()*6.28,0,jitter(R,0.30),
+    {cast:false,far:lo?520:340});
+}
+function plantBush(x,z,sc,R){plant('bush',G_BUSH,M_FOLI,x,LANDY,z,sc,R()*6.28,0,jitter(R,0.32),{far:900});}
+function plantRock(x,z,sc,R,y){const i=Math.floor(R()*4);
+  plant('rock'+i,G_ROCK[i],M_ROCKI,x,y===undefined?0.02:y,z,sc,R()*6.28,(R()-0.5)*0.4,jitter(R,0.22),{far:900});}
+function plantPiling(x,z,sc,R){plant('piling',G_PILING,M_FOLI,x,0,z,sc,R()*6.28,0,jitter(R,0.2),{far:1100});}
+
+/* =============================== SITE HELPERS =============================== */
+/* A flat ground polygon in world XZ. ShapeGeometry lives in XY, so world z goes in
+   negated and the mesh is laid down with a -90 deg X rotation (local +Z -> world +Y). */
+function groundPoly(pts,y,mat,uvS,holes){
+  const sh=new T.Shape();
+  sh.moveTo(pts[0][0],-pts[0][1]);
+  for(let i=1;i<pts.length;i++)sh.lineTo(pts[i][0],-pts[i][1]);
+  sh.closePath();
+  if(holes)for(const h of holes){
+    const p=new T.Path();p.moveTo(h[0][0],-h[0][1]);
+    for(let i=1;i<h.length;i++)p.lineTo(h[i][0],-h[i][1]);
+    p.closePath();sh.holes.push(p);
   }
-  for(let d=222; d<260; d+=1.6){
-    const off=HALF+3+Math.random()*8;
-    const p=at(off, d+(Math.random()-0.5)*1.5);
-    group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.6));
+  const g=new T.ShapeGeometry(sh);
+  const uv=g.attributes.uv,po=g.attributes.position;
+  for(let i=0;i<uv.count;i++)uv.setXY(i,po.getX(i)*uvS,po.getY(i)*uvS);
+  uv.needsUpdate=true;
+  const m=new T.Mesh(g,mat);
+  m.rotation.x=-Math.PI/2;m.position.y=y;m.receiveShadow=true;return m;
+}
+/* Wavy shoreline generator: a straight run would give away the whole illusion. */
+function shorePts(x0,z0,x1,z1,steps,amp,seed){
+  const R=mulberry(seed),out=[];
+  for(let i=0;i<=steps;i++){
+    const f=i/steps;
+    const a=Math.sin(f*7.1+R()*0.2)*amp+Math.sin(f*17.3)*amp*0.4+(R()-0.5)*amp*0.35;
+    const dx=x1-x0,dz=z1-z0,L=Math.hypot(dx,dz)||1;
+    out.push([x0+dx*f-(dz/L)*a, z0+dz*f+(dx/L)*a]);
   }
-  for(let d=2; d<260; d+=1.8){
-    const p1=at(OFF-HALF-3-Math.random()*8, d+(Math.random()-0.5)*1.5);
-    group.add(makeReeds(p1.x, p1.z, 0.9+Math.random()*0.6));
-    if(Math.random()<0.7){const p2=at(OFF/2+(Math.random()-0.5)*20, d+(Math.random()-0.5)*1.5);
-      group.add(makeReeds(p2.x, p2.z, 0.7+Math.random()*0.5));}
+  return out;
+}
+function surfTexture(){const w=16,h=256,c=cvs(w,h),x=c.getContext('2d');
+  x.clearRect(0,0,w,h);
+  for(let i=0;i<h;i++){
+    const f=i/h;
+    // a broken, uneven band so the waterline is never a clean stripe
+    const a=Math.max(0,Math.sin(f*Math.PI))*(0.45+0.55*Math.abs(Math.sin(f*31)))*(0.6+Math.random()*0.4);
+    x.fillStyle='rgba(255,255,255,'+(a*0.8).toFixed(3)+')';x.fillRect(0,i,w,1);
   }
-  for(let k=0;k<50;k++){
-    const d=8+Math.random()*250;
-    const side=Math.random()<0.5 ? -1 : 1;
-    const off=(side<0 ? OFF-HALF-8-Math.random()*20 : HALF+8+Math.random()*20);
-    if(side>0 && d>15 && d<220 && off<HALF+90) continue;
-    const p=at(off, d);
-    group.add(makeReeds(p.x, p.z, 0.9+Math.random()*0.7));
+  const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;return t;}
+const T_SURF=surfTexture();
+const M_SURF=new T.MeshBasicMaterial({map:T_SURF,transparent:true,opacity:0.5,depthWrite:false,fog:true});
+/* Foam ribbon that runs along a shoreline polyline. */
+function surfLine(pts,width,y,group){
+  const pos=[],uv=[],idx=[];let vc=0,run=0;
+  for(let i=0;i<pts.length;i++){
+    const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
+    let tx=b[0]-a[0],tz=b[1]-a[1];const L=Math.hypot(tx,tz)||1;tx/=L;tz/=L;
+    const nx=-tz,nz=tx;
+    if(i>0)run+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+    const jw=width*(0.7+Math.sin(i*1.7)*0.3);
+    pos.push(pts[i][0]-nx*jw*0.5,y,pts[i][1]-nz*jw*0.5, pts[i][0]+nx*jw*0.5,y,pts[i][1]+nz*jw*0.5);
+    uv.push(0,run*0.05, 1,run*0.05);
+    if(i<pts.length-1){const a0=vc,b0=vc+1,c0=vc+2,d0=vc+3;idx.push(a0,c0,b0,b0,c0,d0);}
+    vc+=2;
   }
-  // === DENSE TREES — both sides, 5 rows + intermediate + deep scatter ===
-  for(let d=15; d<L; d+=8){
-    const lJ=(Math.random()-0.5)*6;
-    const pL=at(OFF-HALF-14-Math.random()*8, d+lJ);
-    group.add(makeTree(pL.x, pL.z, 1.3+Math.random()*0.9));
-    const inInlet = d>=15 && d<=220;
-    const inMarinaBldg = d>=95 && d<=140;
-    if(inMarinaBldg) continue;
-    const rOff = inInlet ? (HALF+110+Math.random()*10) : (HALF+14+Math.random()*7);
-    const pR=at(rOff, d+(Math.random()-0.5)*6);
-    group.add(makeTree(pR.x, pR.z, 1.3+Math.random()*0.9));
-  }
-  // Intermediate row (interleaved between front row for extra density)
-  for(let d=20; d<L; d+=10){
-    if(Math.random()<0.35) continue;
-    const lJ=(Math.random()-0.5)*8;
-    const pL=at(OFF-HALF-24-Math.random()*10, d+lJ);
-    group.add(makeTree(pL.x, pL.z, 1.3+Math.random()*1.0));
-    const inMarinaBldg = d>=95 && d<=140;
-    const inInlet = d>=15 && d<=220;
-    if(inMarinaBldg) continue;
-    const rOff = inInlet ? (HALF+120+Math.random()*15) : (HALF+22+Math.random()*10);
-    const pR=at(rOff, d+(Math.random()-0.5)*8);
-    group.add(makeTree(pR.x, pR.z, 1.3+Math.random()*1.0));
-  }
-  for(let d=22; d<L; d+=14){
-    for(const sideSign of [-1, 1]){
-      if(sideSign>0 && d>=90 && d<=145) continue;
-      if(Math.random()<0.15) continue;
-      const baseOff = 38+Math.random()*14;
-      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
-      const p=at(off, d+(Math.random()-0.5)*10);
-      group.add(makeTree(p.x, p.z, 1.4+Math.random()*1.0));
-    }
-  }
-  for(let d=35; d<L; d+=18){
-    for(const sideSign of [-1, 1]){
-      if(Math.random()<0.2) continue;
-      const baseOff = 80+Math.random()*38;
-      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
-      const p=at(off, d+(Math.random()-0.5)*18);
-      group.add(makeTree(p.x, p.z, 1.6+Math.random()*1.1));
-    }
-  }
-  for(let d=45; d<L; d+=22){
-    for(const sideSign of [-1, 1]){
-      if(Math.random()<0.25) continue;
-      const baseOff = 140+Math.random()*60;
-      const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
-      const p=at(off, d+(Math.random()-0.5)*22);
-      group.add(makeTree(p.x, p.z, 1.7+Math.random()*1.2));
-    }
-  }
-  for(let k=0;k<320;k++){
-    const d = 20+Math.random()*(L-40);
-    const sideSign = Math.random()<0.5 ? -1 : 1;
-    const baseOff = 210+Math.random()*900;
-    const off = sideSign<0 ? (OFF-HALF-baseOff) : (HALF+baseOff);
-    const p=at(off, d);
-    group.add(makeTree(p.x, p.z, 1.5+Math.random()*1.3));
-  }
-  // === EXTRA FRONT-ROW TREES (fills bare spots near road, alternates rows) ===
-  for(let d=18; d<L; d+=8){
-    if(Math.random()<0.35) continue;
-    const lJ=(Math.random()-0.5)*6;
-    const pL=at(OFF-HALF-8-Math.random()*4, d+lJ);
-    group.add(makeTree(pL.x, pL.z, 1.1+Math.random()*0.7));
-    // right (skip inlet + marina area)
-    const inInlet = d>=15 && d<=220;
-    const inMarinaBldg = d>=95 && d<=140;
-    if(inMarinaBldg) continue;
-    const rOff = inInlet ? (HALF+130+Math.random()*8) : (HALF+8+Math.random()*4);
-    if(Math.random()<0.4){const pR=at(rOff, d+(Math.random()-0.5)*6);
-      group.add(makeTree(pR.x, pR.z, 1.1+Math.random()*0.7));}
-  }
-  // === NEIGHBORHOOD — Stevensville houses on Kent Island, mid-distance both sides ===
-  const wallCols=[0xd8ccb0, 0xc4b48a, 0xe6dccb, 0xa89574, 0xd6c7a5, 0xbfae8e, 0xece2cc, 0x9c8664];
-  const roofCols=[0x5b4a3a, 0x4a3d2f, 0x6b5541, 0x3d3226, 0x5a4638, 0x2f2820];
-  for(let d=180; d<L; d+=42){
-    // LEFT side neighborhood — beyond twin span
-    if(Math.random()<0.7){
-      const h=makeHouse(wallCols[Math.floor(Math.random()*wallCols.length)], roofCols[Math.floor(Math.random()*roofCols.length)]);
-      const off=OFF-HALF-55-Math.random()*90;
-      const p=at(off, d+(Math.random()-0.5)*24);
-      h.position.set(p.x, 0, p.z);
-      h.rotation.y=Math.atan2(eR.x, eR.z)+(Math.random()-0.5)*0.7;
-      group.add(h);
-    }
-    // RIGHT side neighborhood — past the marina inlet
-    if(Math.random()<0.7 && (d<95 || d>145)){
-      const rBase = (d>=15 && d<=220) ? 160 : 55;  // skip inlet water/sand/beach
-      const h=makeHouse(wallCols[Math.floor(Math.random()*wallCols.length)], roofCols[Math.floor(Math.random()*roofCols.length)]);
-      const off=HALF+rBase+Math.random()*80;
-      const p=at(off, d+(Math.random()-0.5)*24);
-      h.position.set(p.x, 0, p.z);
-      h.rotation.y=Math.atan2(-eR.x, -eR.z)+(Math.random()-0.5)*0.7;
-      group.add(h);
-    }
-  }
-  // === SHRUBS / LOW BUSHES — foreground detail scatter to break up bare grass ===
-  const bushMat=new T.MeshStandardMaterial({color:0x6b8558,roughness:1});
-  const bushMat2=new T.MeshStandardMaterial({color:0x7a9265,roughness:1});
-  const bushMat3=new T.MeshStandardMaterial({color:0x5c7648,roughness:1});
-  const bushMats=[bushMat,bushMat2,bushMat3];
-  for(let k=0;k<420;k++){
-    const d = 15+Math.random()*(L-30);
-    const sideSign = Math.random()<0.5 ? -1 : 1;
-    // Two bands: close (front row filler) and mid
-    const band = Math.random()<0.55 ? (16+Math.random()*16) : (46+Math.random()*70);
-    let off = sideSign<0 ? (OFF-HALF-band) : (HALF+band);
-    // avoid marina inlet water & building
-    if(sideSign>0){
-      if(d>=15 && d<=220 && off<HALF+125) off = HALF+125+Math.random()*20;
-      if(d>=95 && d<=140 && off<HALF+90) continue;
-    }
-    const p=at(off, d);
-    const scale=0.55+Math.random()*0.75;
-    const bush=new T.Mesh(new T.IcosahedronGeometry(1,0), bushMats[Math.floor(Math.random()*3)]);
-    bush.scale.set(scale*1.4, scale*0.9, scale*1.3);
-    bush.position.set(p.x, scale*0.55, p.z);
-    bush.rotation.y=Math.random()*Math.PI*2;
-    bush.castShadow=true; bush.receiveShadow=true;
-    group.add(bush);
-  }
-  // === EXTRA REEDS — dense marsh clumps scattered further from road on both sides ===
-  for(let k=0;k<80;k++){
-    const d=8+Math.random()*260;
-    const sideSign=Math.random()<0.5 ? -1 : 1;
-    let off = sideSign<0 ? (OFF-HALF-3-Math.random()*14) : (HALF+3+Math.random()*14);
-    // skip marina inlet water gap on the right
-    if(sideSign>0 && d>15 && d<220 && off<HALF+125) continue;
-    const p=at(off, d);
-    group.add(makeReeds(p.x, p.z, 0.8+Math.random()*0.7));
-  }
-  // === SHEDS / SMALL OUTBUILDINGS ===
-  for(let k=0;k<14;k++){
-    const d=50+Math.random()*(L-100);
-    const sideSign=Math.random()<0.5 ? -1 : 1;
-    const off = sideSign<0 ? (OFF-HALF-40-Math.random()*30) : (HALF+40+Math.random()*30);
-    if(sideSign>0 && d>=15 && d<=220 && off<HALF+140) continue;
-    const p=at(off, d);
-    const w=3+Math.random()*2, h=2.4+Math.random()*0.8, dep=3+Math.random()*2;
-    const shed=box(w, h, dep, new T.MeshStandardMaterial({color:[0x8e7550,0x9d8256,0x6b5a3f][Math.floor(Math.random()*3)],roughness:.9}));
-    shed.position.set(p.x, h/2, p.z);
-    shed.rotation.y=Math.random()*Math.PI*2;
-    shed.castShadow=true; shed.receiveShadow=true;
-    group.add(shed);
-    const roof=box(w+0.4, 0.2, dep+0.4, new T.MeshStandardMaterial({color:0x3d3226,roughness:.85}));
-    roof.position.set(p.x, h+0.1, p.z); roof.rotation.y=shed.rotation.y;
-    roof.castShadow=true; group.add(roof);
-  }
-  // === MAILBOXES / FENCE POSTS along the road (front-row detail) ===
-  const postMat=new T.MeshStandardMaterial({color:0x8b7a5c,roughness:.9});
-  for(let d=30; d<L; d+=12){
-    if(Math.random()<0.6) continue;
-    for(const sideSign of [-1, 1]){
-      if(sideSign>0){
-        if(d>=15 && d<=220) continue; // in inlet zone, no fence
-        if(d>=95 && d<=140) continue;
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  const m=new T.Mesh(g,M_SURF);m.renderOrder=1;group.add(m);return m;
+}
+/* Riprap: the graded stone revetment that armours every shoreline on this bay. */
+function riprap(pts,rows,seed,group,y){
+  const R=mulberry(seed);
+  for(let i=0;i<pts.length-1;i++){
+    const ax=pts[i][0],az=pts[i][1],bx=pts[i+1][0],bz=pts[i+1][1];
+    const dx=bx-ax,dz=bz-az,L=Math.hypot(dx,dz)||1;
+    const nx=-dz/L,nz=dx/L;
+    const n=Math.max(1,Math.floor(L/0.75));
+    for(let k=0;k<n;k++){
+      const f=k/n;
+      for(let r=0;r<rows*2;r++){
+        if(R()<0.12)continue;
+        const off=(r-rows)*0.8+(R()-0.5)*0.7;
+        plantRock(ax+dx*f+nx*off+(R()-0.5)*0.55, az+dz*f+nz*off+(R()-0.5)*0.55,
+                  0.75+R()*0.85, R, (y||0)-0.05+R()*0.22);
       }
-      const off = sideSign<0 ? (OFF-HALF-8) : (HALF+8);
-      const p=at(off, d);
-      const post=new T.Mesh(new T.CylinderGeometry(0.06,0.06,1.0,5), postMat);
-      post.position.set(p.x, 0.5, p.z);
-      post.castShadow=true;
-      group.add(post);
     }
   }
 }
 
-function buildShores(group){
-  const wP=PATH_POS[4],wR=PATH_RIGHT[4];
-  const beach=new T.Mesh(new T.PlaneGeometry(360,150),new T.MeshStandardMaterial({map:T_SAND,roughness:1}));
-  beach.rotation.x=-Math.PI/2;beach.position.set(wP.x-40,0.05,-30);beach.receiveShadow=true;group.add(beach);
-  const wgr=new T.Mesh(new T.PlaneGeometry(360,180),new T.MeshStandardMaterial({map:T_GRASS,roughness:1}));
-  wgr.rotation.x=-Math.PI/2;wgr.position.set(wP.x-40,0.04,-160);wgr.receiveShadow=true;group.add(wgr);
-  for(let k=0;k<22;k++)group.add(makeTree(wP.x-160+Math.random()*300,-90-Math.random()*160,0.9+Math.random()));
-  for(let k=0;k<14;k++)group.add(makeReeds(wP.x-120+Math.random()*240,-20-Math.random()*40,0.8+Math.random()*0.6));
-  // small Sandy Point park building
-  const pk=box(16,5,10,new T.MeshStandardMaterial({color:0xd9cbb0,roughness:.85}));pk.position.set(wP.x-70,2.5,-70);pk.castShadow=true;group.add(pk);
-  group.add(new T.Mesh(new T.BoxGeometry(17,0.6,11),new T.MeshStandardMaterial({color:0x555b60,roughness:.7})).translateX(wP.x-70).translateY(5.2).translateZ(-70));
-
-  const eP=PATH_POS[N-3],eR=PATH_RIGHT[N-3];
-  // NOTE: Kent Island ground, sand, trees, boats, and marina are now built entirely by
-  // buildKentIsland() using road-aligned BufferGeometry strips. The old 700x420 grass +
-  // 700x80 sand planes here were centered at eP and covered a huge rectangular area,
-  // hiding the marina inlet water gap. They also placed trees on the wrong side.
-  // buildKentIsland handles everything past the bridge end now — do NOT re-add planes here.
-  buildKentIsland(group);
-  // reeds/marsh along the causeway approach + shore — BOTH sides of BOTH spans, only where deck is low
-  // (skips the high suspension section in the middle by checking P.y)
-  const TWIN_OFF=-44;
-  for(let ii=6; ii<N-4; ii+=6){
-    const P=PATH_POS[ii], R=PATH_RIGHT[ii];
-    if(P.y>5.5) continue;  // only shallow-water trestle sections get reeds
-    // Main (player) span — both sides
-    for(const sgn of [-1,1]){
-      const ox=R.x*sgn*(ROAD_HALF+3+Math.random()*10), oz=R.z*sgn*(ROAD_HALF+3+Math.random()*10);
-      group.add(makeReeds(P.x+ox, P.z+oz, 0.8+Math.random()*0.7));
+/* --------------------------- BUILDINGS ---------------------------
+   One parameterised shell covers everything on both shores: clapboard houses,
+   the marina's metal sheds, the Stevensville strip, the park bathhouse.        */
+const M_GLASSDK=new T.MeshStandardMaterial({color:0x1d2c34,roughness:.12,metalness:.75});
+const M_WINLIT =new T.MeshStandardMaterial({color:0x2a3138,roughness:.15,metalness:.6,emissive:0xffcf8a,emissiveIntensity:0});
+const LIT_WINDOWS=[];
+function bldg(o){
+  const g=new T.Group();
+  const w=o.w,d=o.d,h=o.h;
+  const wall=new T.MeshStandardMaterial({color:o.wall,roughness:o.rough===undefined?.88:o.rough,metalness:o.metal||0});
+  const roofM=new T.MeshStandardMaterial({color:o.roof,roughness:.85});
+  const body=box(w,h,d,wall);body.position.y=h/2;body.castShadow=true;body.receiveShadow=true;g.add(body);
+  // foundation band grounds the box instead of letting it float on the grass
+  const fnd=box(w+0.22,0.45,d+0.22,new T.MeshStandardMaterial({color:0xa9a396,roughness:.95}));
+  fnd.position.y=0.22;fnd.receiveShadow=true;g.add(fnd);
+  const rt=o.roofType||'gable';
+  if(rt==='gable'){
+    // prism roof: a 3-sided cylinder makes a clean ridge without custom geometry
+    const rf=new T.Mesh(new T.CylinderGeometry(1,1,d+o.eave*2||d+0.7,3,1),roofM);
+    rf.rotation.z=Math.PI/2;rf.rotation.y=Math.PI/2;
+    rf.scale.set(h*0.36*(o.pitch||1),1,w*0.72);
+    rf.position.y=h+h*0.18*(o.pitch||1);rf.castShadow=true;g.add(rf);
+  }else if(rt==='hip'){
+    const rf=new T.Mesh(new T.ConeGeometry(1,1,4),roofM);
+    rf.rotation.y=Math.PI/4;rf.scale.set(w*0.72,h*0.42,d*0.72);
+    rf.position.y=h+h*0.21;rf.castShadow=true;g.add(rf);
+  }else{ // flat commercial roof with a parapet and a couple of rooftop units
+    const par=box(w+0.3,0.55,d+0.3,roofM);par.position.y=h+0.2;par.castShadow=true;g.add(par);
+    const R=mulberry((o.seed||3)*17);
+    for(let k=0;k<2;k++){const u=box(1.6+R(),0.9,1.4+R(),new T.MeshStandardMaterial({color:0x9aa0a4,roughness:.7,metalness:.3}));
+      u.position.set((R()-0.5)*w*0.5,h+0.65,(R()-0.5)*d*0.5);g.add(u);}
+  }
+  // window grid on the two long faces
+  if(o.win!==false){
+    const rows=Math.max(1,Math.floor(h/3.1)),cols=Math.max(1,Math.floor(w/3.4));
+    const wm=o.litWin===false?M_GLASSDK:M_WINLIT.clone();
+    if(o.litWin!==false)LIT_WINDOWS.push(wm);
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      const px=(c-(cols-1)/2)*(w/cols), py=h*(0.30+r*0.62/rows)+0.3;
+      for(const sz of[1,-1]){
+        const win=box(w/cols*0.5,Math.min(1.35,h/rows*0.42),0.1,wm);
+        win.position.set(px,py,sz*(d/2+0.03));g.add(win);
+      }
     }
-    // Twin span (offset by TWIN_OFF along R) — both sides
-    for(const sgn of [-1,1]){
-      const cx=P.x+R.x*TWIN_OFF, cz=P.z+R.z*TWIN_OFF;
-      const ox=R.x*sgn*(ROAD_HALF+3+Math.random()*10), oz=R.z*sgn*(ROAD_HALF+3+Math.random()*10);
-      group.add(makeReeds(cx+ox, cz+oz, 0.8+Math.random()*0.7));
+    const cols2=Math.max(1,Math.floor(d/3.6));
+    for(let r=0;r<rows;r++)for(let c=0;c<cols2;c++){
+      for(const sx of[1,-1]){
+        const win=box(0.1,Math.min(1.35,h/rows*0.42),d/cols2*0.5,wm);
+        win.position.set(sx*(w/2+0.03),h*(0.30+r*0.62/rows)+0.3,(c-(cols2-1)/2)*(d/cols2));g.add(win);
+      }
     }
   }
-  // Sandy Point Shoal Light offshore NW
-  const light=new T.Group();
-  const caisson=box(6,4,6,new T.MeshStandardMaterial({color:0x8a3b34,roughness:.8}));caisson.position.y=2;light.add(caisson);
-  const house=new T.Mesh(new T.CylinderGeometry(3,3.4,5,10),new T.MeshStandardMaterial({color:0xe6e2d8,roughness:.7}));house.position.y=6.5;light.add(house);
-  const lantern=box(2,2,2,new T.MeshStandardMaterial({color:0x2b2f33,roughness:.5}));lantern.position.y=10;light.add(lantern);
-  light.position.set(wP.x+120,0,80);light.traverse(o=>{if(o.isMesh)o.castShadow=true;});group.add(light);}
+  if(o.door!==false){
+    const dr=box(1.1,2.1,0.14,new T.MeshStandardMaterial({color:o.doorC||0x46351f,roughness:.7}));
+    dr.position.set(w*0.1,1.05,d/2+0.05);g.add(dr);
+    const st=box(2.0,0.3,1.0,new T.MeshStandardMaterial({color:0xbdb4a4,roughness:.95}));
+    st.position.set(w*0.1,0.3,d/2+0.6);st.receiveShadow=true;g.add(st);
+  }
+  if(o.porch){ // covered porch across the front — very Eastern Shore
+    const pr=box(w*0.92,0.16,o.porch,roofM);pr.position.set(0,h*0.62,d/2+o.porch/2);pr.castShadow=true;g.add(pr);
+    for(const sx of[-1,1]){const p=new T.Mesh(new T.CylinderGeometry(0.09,0.09,h*0.62,6),wall);
+      p.position.set(sx*w*0.42,h*0.31,d/2+o.porch-0.2);g.add(p);}
+    const dk=box(w*0.92,0.2,o.porch,new T.MeshStandardMaterial({color:0xb0a48c,roughness:.92}));
+    dk.position.set(0,0.42,d/2+o.porch/2);dk.receiveShadow=true;g.add(dk);
+  }
+  if(o.sign){
+    const sg=box(o.sign.w||w*0.5,o.sign.h||1.5,0.3,
+      new T.MeshStandardMaterial({color:o.sign.c||0xc23227,roughness:.6,emissive:o.sign.c||0xc23227,emissiveIntensity:0}));
+    sg.position.set(0,o.sign.y||h*0.8,d/2+0.2);g.add(sg);
+    LIT_WINDOWS.push(sg.material);
+  }
+  g.position.set(o.x,0,o.z);g.rotation.y=o.rot||0;
+  return g;
+}
+/* Asphalt pad with painted bays — parking lots read as "developed land" instantly. */
+function lotTexture(){const w=128,h=128,c=cvs(w,h),x=c.getContext('2d');
+  noiseFill(x,w,h,'#3f4245',16);
+  x.globalAlpha=.08;for(let i=0;i<40;i++){x.fillStyle=Math.random()>.5?'#54585b':'#33363a';
+    x.fillRect(Math.random()*w,Math.random()*h,8+Math.random()*30,6+Math.random()*24);}
+  x.globalAlpha=1;x.fillStyle='#d9d6c6';
+  for(let i=0;i<w;i+=16)x.fillRect(i,8,2,44);          // bay stripes, two ranks
+  for(let i=0;i<w;i+=16)x.fillRect(i,72,2,44);
+  return tex(c,1,1);}
+const M_LOT=new T.MeshStandardMaterial({map:lotTexture(),roughness:.95,metalness:.02,color:0xffffff});
+function lot(cx,cz,w,d,rot,rep,group){
+  const g=new T.Mesh(new T.PlaneGeometry(w,d),M_LOT.clone());
+  g.material.map=M_LOT.map.clone();g.material.map.repeat.set(rep||w/14,(rep||w/14)*d/w);
+  g.material.map.needsUpdate=true;
+  g.rotation.x=-Math.PI/2;g.rotation.z=rot||0;g.position.set(cx,LANDY+0.04,cz);g.receiveShadow=true;
+  group.add(g);return g;
+}
+/* Instanced parked cars: a lot with fifty individually-built vehicles would cost more
+   draw calls than the entire bridge. */
+function fillLot(cx,cz,w,d,rot,rows,perRow,R,skip){
+  const ca=Math.cos(rot),sa=Math.sin(rot);
+  for(let r=0;r<rows;r++)for(let i=0;i<perRow;i++){
+    if(R()<(skip===undefined?0.28:skip))continue;
+    const lx=(i-(perRow-1)/2)*2.7, lz=(r-(rows-1)/2)*(d/Math.max(1,rows));
+    const x=cx+lx*ca-lz*sa, z=cz+lx*sa+lz*ca;
+    const v=Math.floor(R()*G_CAR.length);
+    plant('car'+v,G_CAR[v],M_PROP,x,LANDY+0.04,z,0.95+R()*0.12,rot+(r%2?Math.PI:0)+(R()-0.5)*0.05,0,
+      CAR_COLS[Math.floor(R()*CAR_COLS.length)],{far:1100});
+  }
+}
+
+/* =============================== INSTANCED PROPS =============================== */
+const M_PROP=new T.MeshStandardMaterial({vertexColors:true,roughness:.48,metalness:.22});
+const M_PROP_R=new T.MeshStandardMaterial({vertexColors:true,roughness:.85,metalness:.04});
+const CAR_COLS=[0xd8d8d6,0x2e3136,0x8d9195,0x9c1f22,0x1f3d6b,0x3d5c42,0xc6c2b4,0x6b2f28,0xe4e0d6,0x44484d]
+  .map(h=>new T.Color(h).convertSRGBToLinear());
+let G_CAR=[],G_SAIL=[],G_MOTOR=[],G_SKIFF=null,G_STAND=null,G_CLEAT=null,G_GULLPOST=null;
+
+/* Stubby, readable car silhouettes — these are only ever seen parked and at distance. */
+function carGeo(seed,type){
+  const R=mulberry(seed),parts=[];
+  const L=type==='truck'?5.4:(type==='van'?4.9:4.4), W=type==='truck'?2.0:1.82;
+  const body=sRGB(0xffffff), glass=sRGB(0x2b343a), tyre=sRGB(0x16191c);
+  parts.push(part(new T.BoxGeometry(W,0.78,L),0,0.66,0,1,1,1,0,body,f=>0.72+0.4*f));
+  const ch=type==='truck'?0.80:(type==='van'?0.95:0.66);
+  const cl=type==='truck'?L*0.42:(type==='van'?L*0.62:L*0.52);
+  parts.push(part(new T.BoxGeometry(W*0.9,ch,cl),0,1.05+ch/2,type==='truck'?L*0.10:-L*0.02,1,1,1,0,glass,f=>0.6+0.7*f));
+  if(type==='truck')parts.push(part(new T.BoxGeometry(W*0.96,0.42,L*0.42),0,1.26,-L*0.28,1,1,1,0,body,f=>0.7+0.4*f));
+  const wheel=new T.CylinderGeometry(0.34,0.34,0.24,8);
+  for(const sx of[-1,1])for(const pz of[L*0.31,-L*0.31]){
+    const p=part(wheel,sx*(W*0.5-0.05),0.34,pz,1,1,1,0,tyre,f=>0.7+0.3*f);
+    p.m.multiply(new T.Matrix4().makeRotationZ(Math.PI/2));parts.push(p);
+  }
+  return mergeParts(parts);
+}
+/* Moored boats. Masts are the point: a basin full of bare sticks is what a marina
+   actually looks like from the road, and the old build had none. */
+function hullParts(L,B,hullHex,deckHex,stripeHex){
+  const hull=sRGB(hullHex),deck=sRGB(deckHex),trim=sRGB(stripeHex);
+  const hs=f=>0.55+0.62*f, parts=[];
+  parts.push(part(new T.BoxGeometry(B,1.05,L*0.56),0,0.55,0,1,1,1,0,hull,hs));
+  parts.push(part(new T.BoxGeometry(B*0.86,1.05,L*0.23),0,0.55,-L*0.39,1,1,1,0,hull,hs));
+  parts.push(part(new T.BoxGeometry(B*0.66,1.05,L*0.23),0,0.55,L*0.39,1,1,1,0,hull,hs));
+  const prow=part(new T.CylinderGeometry(0.02,B*0.33,1.7,3),0,0.55,L*0.5+0.4,1,1,1,0,hull,hs);
+  prow.m.multiply(new T.Matrix4().makeRotationX(Math.PI/2)).multiply(new T.Matrix4().makeRotationY(Math.PI/6));
+  parts.push(prow);
+  parts.push(part(new T.BoxGeometry(B*0.94,0.09,L*0.97),0,1.11,0,1,1,1,0,deck,()=>1.0));
+  parts.push(part(new T.BoxGeometry(B+0.07,0.15,L+0.05),0,1.02,0,1,1,1,0,trim,()=>0.85));
+  parts.push(part(new T.BoxGeometry(B+0.03,0.16,L*0.97),0,0.78,0,1,1,1,0,trim,()=>0.7));
+  return parts;
+}
+function sailGeo(seed,L){
+  const R=mulberry(seed),B=L*0.30;
+  const parts=hullParts(L,B,[0xf2f1ea,0xe9e6da,0x243b52][Math.floor(R()*3)],0xdcd8c8,0x1e2830);
+  const spar=sRGB(0x8f959b), cab=sRGB(0xe6e3d6);
+  parts.push(part(new T.BoxGeometry(B*0.62,0.55,L*0.3),0,1.38,L*0.04,1,1,1,0,cab,f=>0.75+0.35*f));
+  const mh=L*1.32;
+  parts.push(part(CYL,0,1.2+mh/2,L*0.05,0.085,mh,0.085,0,spar,f=>0.8+0.3*f));
+  const boom=part(CYL,0,2.15,-L*0.14,0.045,L*0.42,0.045,0,spar,()=>0.85);
+  boom.m.multiply(new T.Matrix4().makeRotationX(Math.PI/2));parts.push(boom);
+  // furled mainsail bundled on the boom
+  parts.push(part(new T.BoxGeometry(0.28,0.28,L*0.40),0,2.32,-L*0.14,1,1,1,0,sRGB(0x2b4a6a),()=>0.9));
+  return mergeParts(parts);
+}
+function motorGeo(seed,L){
+  const R=mulberry(seed),B=L*0.33;
+  const parts=hullParts(L,B,[0xf4f3ec,0xe7e4d6,0xdfe3e6][Math.floor(R()*3)],0xd9d4c2,0x24303a);
+  const cab=sRGB(0xeceadf), glass=sRGB(0x27343c), metal=sRGB(0xb4babe);
+  parts.push(part(new T.BoxGeometry(B*0.82,1.15,L*0.36),0,1.72,L*0.06,1,1,1,0,cab,f=>0.7+0.45*f));
+  parts.push(part(new T.BoxGeometry(B*0.84,0.42,L*0.10),0,2.05,L*0.24,1,1,1,0,glass,()=>0.9));
+  if(R()<0.6){ // flybridge / tuna tower
+    parts.push(part(new T.BoxGeometry(B*0.6,0.55,L*0.2),0,2.6,L*0.02,1,1,1,0,cab,f=>0.8+0.3*f));
+    for(const sx of[-1,1])parts.push(part(CYL,sx*B*0.26,3.4,L*0.02,0.04,1.6,0.04,0,metal,()=>0.95));
+    parts.push(part(new T.BoxGeometry(B*0.6,0.07,L*0.2),0,4.2,L*0.02,1,1,1,0,metal,()=>1.0));
+  }
+  parts.push(part(CYL,0,3.0,-L*0.3,0.035,1.7,0.035,0,metal,()=>0.95)); // antenna
+  return mergeParts(parts);
+}
+function buildPropLibrary(){
+  G_CAR=[carGeo(11,'car'),carGeo(23,'car'),carGeo(37,'van'),carGeo(51,'truck')];
+  G_SAIL=[sailGeo(71,9),sailGeo(83,11),sailGeo(97,13.5)];
+  G_MOTOR=[motorGeo(113,8.5),motorGeo(127,11),motorGeo(139,14)];
+  G_SKIFF=mergeParts(hullParts(5,1.9,0xe8e4d6,0xcfc9b6,0x2a3038));
+  // boatyard cradle: a hull up on stands is the signature of a working yard
+  {const parts=[];const st=sRGB(0x8a5a2a);
+   for(const sx of[-1,1])for(const pz of[-1.6,1.6])
+     parts.push(part(CYL,sx*1.05,0.7,pz,0.07,1.4,0.07,0,st,()=>0.9));
+   parts.push(part(new T.BoxGeometry(2.6,0.14,4.0),0,1.42,0,1,1,1,0,st,()=>1.0));
+   G_STAND=mergeParts(parts);}
+  G_CLEAT=mergeParts([part(CYL,0,0.12,0,0.07,0.24,0.07,0,sRGB(0x9aa0a4),()=>1)]);
+  // channel marker piling with a gull-friendly cap
+  G_GULLPOST=mergeParts([
+    part(CYL,0,1.5,0,0.16,3.0,0.16,0,sRGB(0x4a4038),f=>0.6+0.5*f),
+    part(CYL,0,3.06,0,0.20,0.12,0.20,0,sRGB(0x2b2722),()=>0.9)]);
+}
+
+/* ------------------------------ DOCKS ------------------------------ */
+function dockTexture(){const w=64,h=64,c=cvs(w,h),x=c.getContext('2d');
+  noiseFill(x,w,h,'#9c8d72',14);
+  x.strokeStyle='rgba(74,64,50,0.55)';x.lineWidth=1.5;
+  for(let i=0;i<=w;i+=8){x.beginPath();x.moveTo(i,0);x.lineTo(i,h);x.stroke();}
+  x.globalAlpha=.10;for(let i=0;i<26;i++){x.fillStyle=Math.random()>.5?'#7d715c':'#b6a88d';
+    x.fillRect(0,Math.random()*h,w,1+Math.random()*3);}
+  x.globalAlpha=1;return tex(c,1,1);}
+const T_DOCK=dockTexture();
+const M_DOCK=new T.MeshStandardMaterial({map:T_DOCK,roughness:.93,metalness:.02,color:0xbdb2a0});
+/* A dock run plus its pilings. ax/az -> bx/bz, given width. */
+function dockRun(ax,az,bx,bz,wid,group,R,y){
+  y=y===undefined?0.72:y;
+  const dx=bx-ax,dz=bz-az,L=Math.hypot(dx,dz)||1;
+  const m=new T.Mesh(new T.BoxGeometry(wid,0.22,L),M_DOCK.clone());
+  m.material.map=T_DOCK.clone();m.material.map.repeat.set(wid/2.5,L/2.5);m.material.map.needsUpdate=true;
+  m.position.set((ax+bx)/2,y,(az+bz)/2);m.rotation.y=Math.atan2(dx,dz);
+  m.castShadow=true;m.receiveShadow=true;group.add(m);
+  const n=Math.max(2,Math.round(L/7));
+  for(let i=0;i<=n;i++){
+    const f=i/n;
+    for(const s of[-1,1])plantPiling(ax+dx*f+(-dz/L)*s*wid*0.45, az+dz*f+(dx/L)*s*wid*0.45, 1.05+R()*0.25, R);
+  }
+  return m;
+}
+
+/* ========================= SANDY POINT — WESTERN SHORE =========================
+   Anne Arundel County side. The bridge leaves land at Sandy Point State Park: a
+   swimming beach facing the bay, one of the largest boat-launch facilities on the
+   Chesapeake behind a stone jetty, the toll plaza on the approach, and the Sandy
+   Point Shoal Light standing offshore to the north-east.
+   World frame here: +X is north, +Z is east (seaward), the roadway runs along X~0. */
+const LANDY=0.30;   // mean land level above chart datum; the swell peaks below this
+// groundPoly UV scale = (tiles per metre) / the texture's own built-in repeat
+const GRASS_UV=(1/9)/30, SAND_UV=(1/5)/40;
+const M_GRASS=new T.MeshStandardMaterial({map:T_GRASS,roughness:1,color:0xb2ae90});
+const M_SANDG=new T.MeshStandardMaterial({map:T_SAND,roughness:1,color:0xcabfa2});
+const M_DUNE =new T.MeshStandardMaterial({map:T_GRASS,roughness:1,color:0xa7a884});
+
+function buildSandyPoint(group){
+  const R=mulberry(4242);
+  // ---- shoreline: bulges east around the point itself, with a launch cove at x~+300 ----
+  const shore=[];
+  for(let x=760;x>=-760;x-=14){
+    const t=x/760;
+    let z=78+Math.cos(t*1.5)*34;                       // the point pushes seaward
+    z+=Math.sin(x*0.013)*7+Math.sin(x*0.041)*2.6;       // natural wander
+    if(x>215&&x<430)z-=34*Math.sin((x-215)/215*Math.PI); // protected launch cove
+    shore.push([x,z]);
+  }
+  // ---- land ----
+  const land=[[-900,-1100],[900,-1100]].concat(shore);
+  group.add(groundPoly(land,LANDY,M_GRASS,GRASS_UV,null));
+  surfLine(shore,9,LANDY+0.02,group);
+
+  // beach: a sand apron inland of the shore over the northern half
+  const beach=[];
+  for(let i=0;i<shore.length;i++){if(shore[i][0]<-120)break;beach.push(shore[i]);}
+  const beachBack=beach.map(p=>[p[0],p[1]-(p[0]>215&&p[0]<430?18:52)-Math.sin(p[0]*0.021)*9]).reverse();
+  group.add(groundPoly(beach.concat(beachBack),LANDY+0.02,M_SANDG,SAND_UV));
+  // wet, darker sand right at the waterline
+  const wet=beach.concat(beach.map(p=>[p[0],p[1]-7]).reverse());
+  group.add(groundPoly(wet,LANDY+0.03,new T.MeshStandardMaterial({map:T_SAND,roughness:.72,color:0x9d8c68}),SAND_UV));
+
+  // ---- approach carriageways, running back west past the toll plaza ----
+  // One ribbon per carriageway so the surface can climb smoothly onto the deck instead of
+  // meeting it at a visible step.
+  const roadY=LANDY+0.12, DECKY=PATH_POS[0].y+0.02;
+  function approach(cx,w){
+    const pos=[],uv=[],idx=[];let vc=0;const steps=90;
+    for(let k=0;k<=steps;k++){
+      const f=k/steps, z=-1000+f*1012;
+      const y=z<-70?roadY:roadY+(DECKY-roadY)*Math.pow((z+70)/70,1.6);
+      pos.push(cx-w/2,y,z, cx+w/2,y,z);uv.push(0,z/26,1,z/26);
+      if(k<steps){const a=vc,b=vc+1,c=vc+2,d=vc+3;idx.push(a,c,b,b,c,d);}vc+=2;
+    }
+    const g=new T.BufferGeometry();
+    g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+    g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+    g.setIndex(idx);g.computeVertexNormals();
+    const m=new T.Mesh(g,M_ROAD);m.receiveShadow=true;group.add(m);
+    // jersey barrier carried back off the bridge, following the same profile
+    for(const sgn of[-1,1]){
+      const bp=[],bi=[];let bv=0;
+      for(let k=0;k<=steps;k++){
+        const f=k/steps, z=-1000+f*1012;
+        const y=z<-70?roadY:roadY+(DECKY-roadY)*Math.pow((z+70)/70,1.6);
+        const bx=cx+sgn*w/2;
+        bp.push(bx,y+0.02,z, bx,y+0.92,z);
+        if(k<steps){const a=bv,b=bv+1,c=bv+2,d=bv+3;bi.push(a,c,b,b,c,d);}bv+=2;
+      }
+      const bg=new T.BufferGeometry();
+      bg.setAttribute('position',new T.Float32BufferAttribute(bp,3));bg.setIndex(bi);bg.computeVertexNormals();
+      const bm=new T.Mesh(bg,M_BARR);bm.castShadow=true;bm.receiveShadow=true;group.add(bm);
+    }
+  }
+  approach(0,10.8);approach(44,10.8);
+  // riprap where the causeway meets the bay
+  riprap([[-13,60],[-13,96]],3,7,group,0.1);riprap([[13,60],[13,96]],3,9,group,0.1);
+  riprap([[31,60],[31,96]],3,11,group,0.1);riprap([[57,60],[57,96]],3,13,group,0.1);
+  // median strip between the carriageways
+  group.add(groundPoly([[6,-980],[38,-980],[38,30],[6,30]],LANDY+0.06,M_GRASS,GRASS_UV));
+
+  // ---- TOLL PLAZA (eastbound only, as on the real crossing) ----
+  const tz=-215;
+  {
+    const canopy=box(72,1.5,26,new T.MeshStandardMaterial({color:0xdfe2e4,roughness:.55,metalness:.25}));
+    canopy.position.set(22,8.4,tz);canopy.castShadow=true;group.add(canopy);
+    const fascia=box(72.6,1.2,1.0,new T.MeshStandardMaterial({color:0x1b4a7a,roughness:.6}));
+    fascia.position.set(22,7.5,tz+13);group.add(fascia);
+    for(let i=0;i<7;i++){
+      const px=-8+i*10;
+      const col=new T.Mesh(new T.CylinderGeometry(0.45,0.55,7.7,10),
+        new T.MeshStandardMaterial({color:0xb9bec2,roughness:.6,metalness:.3}));
+      col.position.set(px,3.85,tz+11);col.castShadow=true;group.add(col);
+      // booth islands with an E-ZPass lane left open in the middle of each carriageway
+      if(i!==1&&i!==4){
+        const isl=box(2.2,0.35,17,new T.MeshStandardMaterial({color:0xbdb4a4,roughness:.95}));
+        isl.position.set(px,roadY+0.18,tz);isl.receiveShadow=true;group.add(isl);
+        const booth=bldg({x:px,z:tz,w:2.0,d:3.2,h:2.9,wall:0xe6e7e4,roof:0x4a5259,roofType:'flat',
+          win:false,door:false,seed:i});
+        group.add(booth);
+        const bg=box(1.9,1.3,0.12,M_GLASSDK);bg.position.set(px,2.1,tz+1.65);group.add(bg);
+      }
+    }
+    // overhead E-ZPass gantry ahead of the canopy
+    const gz=tz+52;
+    for(const px of[-14,58]){
+      const p=new T.Mesh(new T.CylinderGeometry(0.28,0.34,8.4,8),
+        new T.MeshStandardMaterial({color:0xa8aeb2,roughness:.6,metalness:.35}));
+      p.position.set(px,roadY+4.2,gz);p.castShadow=true;group.add(p);
+    }
+    const span=box(74,0.5,0.5,new T.MeshStandardMaterial({color:0xa8aeb2,roughness:.6,metalness:.35}));
+    span.position.set(22,roadY+8.2,gz);group.add(span);
+    for(const px of[0,44]){
+      const sgn=box(9,2.4,0.22,new T.MeshStandardMaterial({color:0x7b2d8e,roughness:.6}));
+      sgn.position.set(px,roadY+6.6,gz);sgn.castShadow=true;group.add(sgn);
+      const rd=box(1.2,0.5,0.24,new T.MeshStandardMaterial({color:0xe9e6dc,roughness:.7}));
+      rd.position.set(px,roadY+7.4,gz-0.15);group.add(rd);
+    }
+    // overhead BGS: US 50/301 EAST — BAY BRIDGE
+    for(const px of[0,44]){
+      const bgs=box(11,3.0,0.24,new T.MeshStandardMaterial({color:0x1f6b3a,roughness:.62}));
+      bgs.position.set(px,roadY+7.0,tz-70);bgs.castShadow=true;group.add(bgs);
+      for(const s2 of[-1,1]){
+        const p=new T.Mesh(new T.CylinderGeometry(0.22,0.26,8,7),
+          new T.MeshStandardMaterial({color:0xa8aeb2,roughness:.6,metalness:.35}));
+        p.position.set(px+s2*5.6,roadY+4,tz-70);group.add(p);
+      }
+    }
+  }
+
+  // ---- SANDY POINT STATE PARK (north side) ----
+  // main parking fields
+  lot(250,-150,150,90,0,11,group);  fillLot(250,-150,150,90,0,5,24,R,0.34);
+  lot(430,-40,120,70,0.12,9,group); fillLot(430,-40,120,70,0.12,4,20,R,0.42);
+  lot(140,-330,110,60,0,8,group);   fillLot(140,-330,110,60,0,3,18,R,0.5);
+  // park road linking the lots back to the highway
+  group.add(groundPoly([[95,-420],[112,-420],[300,-60],[470,-22],[470,-40],[300,-78],[112,-436]],LANDY+0.05,
+    new T.MeshStandardMaterial({map:M_LOT.map,roughness:.95,color:0x9a9a96}),0.11));
+
+  // bathhouse + concession, facing the beach
+  group.add(bldg({x:300,z:-8,w:34,d:14,h:5.2,wall:0xd9cfb4,roof:0x6a5342,roofType:'gable',pitch:1.1,eave:1.4,
+                  rot:0.06,seed:2,sign:{w:9,h:1.2,c:0x2f6f5a,y:4.4}}));
+  group.add(bldg({x:470,z:-95,w:16,d:11,h:4.0,wall:0xe2d8bd,roof:0x5b4a3a,roofType:'hip',seed:3}));
+  // picnic pavilions: open roof on posts
+  for(let k=0;k<5;k++){
+    const px=120+k*82+R()*22, pz=-190-R()*120;
+    const rf=new T.Mesh(new T.ConeGeometry(1,1,4),new T.MeshStandardMaterial({color:0x6b5541,roughness:.85}));
+    rf.rotation.y=Math.PI/4;rf.scale.set(8.4,2.6,6.4);rf.position.set(px,4.4,pz);rf.castShadow=true;group.add(rf);
+    for(const sx of[-1,1])for(const sz of[-1,1]){
+      const p=new T.Mesh(new T.CylinderGeometry(0.16,0.16,3.4,6),new T.MeshStandardMaterial({color:0x7a6448,roughness:.9}));
+      p.position.set(px+sx*5.2,1.7,pz+sz*3.8);p.castShadow=true;group.add(p);
+    }
+    for(let t=0;t<2;t++){ // picnic tables
+      const tb=box(2.2,0.12,0.9,new T.MeshStandardMaterial({color:0x8d7551,roughness:.92}));
+      tb.position.set(px-2.4+t*4.4,0.78,pz+(R()-0.5)*3);tb.castShadow=true;group.add(tb);
+    }
+  }
+  // park entrance sign at the highway
+  {const sgn=box(6,1.8,0.3,new T.MeshStandardMaterial({color:0x2f5d3f,roughness:.7}));
+   sgn.position.set(70,1.9,-430);sgn.castShadow=true;group.add(sgn);
+   for(const sx of[-1,1]){const p=box(0.24,2.4,0.24,new T.MeshStandardMaterial({color:0x6b5541,roughness:.9}));
+     p.position.set(70+sx*2.6,1.2,-430);group.add(p);}}
+
+  // ---- BOAT LAUNCH: ramps into the cove, finger piers, and the stone jetty ----
+  const coveZ=44;
+  for(let k=0;k<9;k++){                               // launch ramps
+    const px=240+k*20;
+    const ramp=new T.Mesh(new T.PlaneGeometry(16,30),
+      new T.MeshStandardMaterial({color:0xbfbcb2,roughness:.92}));
+    ramp.rotation.x=-Math.PI/2+0.10;ramp.position.set(px,LANDY-0.05,coveZ-2);ramp.receiveShadow=true;group.add(ramp);
+    if(k<8)plantPiling(px+10,coveZ+8,1.1,R);
+  }
+  for(let k=0;k<5;k++)dockRun(250+k*40,coveZ+6,250+k*40,coveZ+34,1.8,group,R,0.75);
+  // rigging piers along the cove edge
+  dockRun(232,coveZ+10,232,coveZ+44,2.4,group,R,0.75);
+  for(let k=0;k<10;k++){
+    const t=R();const g=t<0.5?G_SKIFF:G_MOTOR[0];
+    plant(t<0.5?'skiff':'moor0',g,M_PROP,236+R()*4,0,coveZ+12+k*3.2,0.9+R()*0.2,Math.PI/2,0,jitter(R,0.16),{far:1100});
+  }
+  // jetty: a rock mole reaching east to shelter the cove
+  riprap(shorePts(228,56,214,150,16,4,88),5,1717,group,0.3);
+  riprap(shorePts(436,44,452,128,14,4,91),4,1919,group,0.3);
+  for(let k=0;k<4;k++)plant('gullpost',G_GULLPOST,M_PROP_R,212+R()*6,0,138+k*11,1,0,0,jitter(R,0.2),{far:1400});
+
+  // ---- riprap along the exposed shore either side of the causeway ----
+  riprap(shore.filter(p=>p[0]>-190&&p[0]<40),2,2323,group,0.15);
+
+  // ---- vegetation ----
+  // dune grass behind the beach
+  for(let k=0;k<420;k++){
+    const i=Math.floor(R()*beach.length),p=beach[i];
+    plantMarsh(p[0]+(R()-0.5)*26,p[1]-26-R()*34,0.75+R()*0.6,R,R()<0.5);
+  }
+  // marsh in the low ground south of the causeway
+  for(let k=0;k<520;k++)plantMarsh(-60-R()*420,-40+R()*170,0.8+R()*0.7,R,R()<0.45);
+  // pine and hardwood woods filling the park and the land south of the highway
+  for(let k=0;k<900;k++){
+    const x=-880+R()*1760, z=-1050+R()*1130;
+    if(Math.abs(x)<16||Math.abs(x-44)<16)continue;            // keep the carriageways clear
+    if(x>90&&x<520&&z>-420&&z<60&&R()<0.55)continue;          // thinner inside the park
+    if(x>-6&&x<52&&z>-300&&z<40)continue;                     // and off the median
+    const far=Math.hypot(x,z+200)>620;
+    plantTree(x,z,0.75+R()*0.7,R,0,far);
+  }
+  for(let k=0;k<620;k++){
+    const x=-880+R()*1760,z=-1050+R()*1120;
+    if(Math.abs(x)<18||Math.abs(x-44)<18)continue;
+    plantBush(x,z,0.8+R()*0.9,R);
+  }
+  // shade trees dotted through the picnic ground, the way a state park actually plants them
+  for(let k=0;k<70;k++){
+    const x=110+R()*400, z=-400+R()*420;
+    if(Math.abs(x-250)<80&&Math.abs(z+150)<50)continue;       // not in the car park
+    plantTree(x,z,0.95+R()*0.55,R);
+  }
+
+  // ---- SANDY POINT SHOAL LIGHT, offshore to the north-east ----
+  // Square brick keeper's dwelling on a brown caisson, black lantern — 1883, still there.
+  {
+    const lg=new T.Group();
+    const cais=new T.Mesh(new T.CylinderGeometry(6.2,6.6,5.2,16),
+      new T.MeshStandardMaterial({color:0x7d3b30,roughness:.9}));
+    cais.position.y=2.0;lg.add(cais);
+    const rim=new T.Mesh(new T.CylinderGeometry(6.9,6.9,0.5,16),
+      new T.MeshStandardMaterial({color:0x2f3236,roughness:.6,metalness:.3}));
+    rim.position.y=4.7;lg.add(rim);
+    const house=bldg({x:0,z:0,w:9.2,d:9.2,h:7.0,wall:0xc9553f,roof:0x2b2f33,roofType:'hip',
+                      win:true,door:false,seed:9,rough:.86});
+    house.position.y=4.9;lg.add(house);
+    const gal=new T.Mesh(new T.CylinderGeometry(3.2,3.2,0.3,12),
+      new T.MeshStandardMaterial({color:0xe6e2d8,roughness:.7}));
+    gal.position.y=14.4;lg.add(gal);
+    const lant=new T.Mesh(new T.CylinderGeometry(1.7,1.9,2.6,10),
+      new T.MeshStandardMaterial({color:0x24272b,roughness:.45,metalness:.45}));
+    lant.position.y=15.8;lg.add(lant);
+    const lens=new T.Mesh(new T.CylinderGeometry(1.3,1.3,1.5,10),
+      new T.MeshStandardMaterial({color:0xfff3d2,roughness:.15,emissive:0xffd98a,emissiveIntensity:0}));
+    lens.position.y=15.8;lg.add(lens);LIT_WINDOWS.push(lens.material);
+    const cap=new T.Mesh(new T.ConeGeometry(2.0,1.6,10),
+      new T.MeshStandardMaterial({color:0x24272b,roughness:.5,metalness:.4}));
+    cap.position.y=17.9;lg.add(cap);
+    lg.position.set(460,0,560);
+    lg.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+    group.add(lg);
+    // a foam collar where the caisson meets the chop
+    const fm=new T.Mesh(FOAM_GEO,M_FOAM);fm.rotation.x=-Math.PI/2;
+    fm.position.set(460,0.16,560);fm.scale.setScalar(13);group.add(fm);
+  }
+}
+
+/* ===================== KENT ISLAND — STEVENSVILLE & BAY BRIDGE MARINA =====================
+   Queen Anne's County side. US 50/301 runs east off the touchdown; Bay Bridge Marina sits
+   in a dredged basin immediately south of the highway with Libbey's on the water, a working
+   boatyard behind it and the Bay Bridge Airport strip away to the north. Exits for MD 8
+   (Romancoke Rd) and MD 18 (Stevensville) follow.
+   Frame: at(off,d) — +off is south (right, eastbound), +d is east.                        */
+function buildKentIsland(group){
+  const R=mulberry(8686);
+  const eP=PATH_POS[N].clone(); const eT=PATH_TAN[N].clone();eT.y=0;eT.normalize();
+  const eR=PATH_RIGHT[N].clone();eR.y=0;eR.normalize();
+  const HALF=ROAD_HALF, roadY=LANDY+0.10, L=2600, OFF=-44, startY=eP.y;
+  const at=(off,d)=>({x:eP.x+eR.x*off+eT.x*d, z:eP.z+eR.z*off+eT.z*d});
+  const AX=(off,d)=>eP.x+eR.x*off+eT.x*d, AZ=(off,d)=>eP.z+eR.z*off+eT.z*d;
+
+  /* ---------------- shoreline, with the marina basin cut into it ---------------- */
+  const shore=[[AX(-1500,-14)+0,AZ(-1500,-14)]];
+  for(let off=-900;off<=38;off+=16){
+    const w=Math.sin(off*0.017)*9+Math.sin(off*0.05)*3+(R()-0.5)*3;
+    shore.push([AX(off,-6+w),AZ(off,-6+w)]);
+  }
+  // basin: east wall in, head, west wall back out to the bay
+  const BASIN=[[44,-8],[50,52],[54,168],[58,286],[72,332],[150,346],[214,340],
+               [256,292],[262,172],[266,58],[264,-8]];
+  for(const b of BASIN)shore.push([AX(b[0],b[1]),AZ(b[0],b[1])]);
+  for(let off=276;off<=900;off+=16){
+    const w=Math.sin(off*0.015)*8+(R()-0.5)*3;
+    shore.push([AX(off,-6+w),AZ(off,-6+w)]);
+  }
+  shore.push([AX(1500,-14),AZ(1500,-14)]);
+  const land=shore.concat([[AX(1500,3600),AZ(1500,3600)],[AX(-1500,3600),AZ(-1500,3600)]]);
+  group.add(groundPoly(land,LANDY,M_GRASS,GRASS_UV));
+  surfLine(shore,8,LANDY+0.02,group);
+  riprap(shore.filter((p,i)=>i%2===0),2,3131,group,0.15);
+
+  /* ---------------- carriageways ---------------- */
+  function ribbon(offL,offR,mat){
+    const pos=[],uv=[],idx=[];let vc=0;const steps=120;
+    for(let k=0;k<=steps;k++){
+      const f=k/steps,d=-8+f*(L+8);
+      const y=(d<80)?startY+(roadY-startY)*Math.max(0,Math.min(1,(d+8)/88)):roadY;
+      pos.push(AX(offL,d),y+0.02,AZ(offL,d), AX(offR,d),y+0.02,AZ(offR,d));
+      uv.push(0,d/6,1,d/6);
+      if(k<steps){const a=vc,b=vc+1,c=vc+2,e=vc+3;idx.push(a,c,b,b,c,e);}vc+=2;
+    }
+    const g=new T.BufferGeometry();
+    g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+    g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+    g.setIndex(idx);g.computeVertexNormals();
+    const m=new T.Mesh(g,mat);m.receiveShadow=true;group.add(m);return m;
+  }
+  ribbon(-HALF,HALF,M_ROAD);ribbon(OFF-HALF,OFF+HALF,M_ROAD);
+  function sideBarrier(offCenter){
+    const pos=[],idx=[];let vc=0,steps=70;
+    for(let k=0;k<=steps;k++){
+      const f=k/steps,d=-6+f*(L+6);
+      const y=(d<80)?startY+(roadY-startY)*Math.max(0,Math.min(1,(d+8)/88)):roadY;
+      const x=AX(offCenter,d),z=AZ(offCenter,d);
+      pos.push(x,y+0.02,z, x,y+0.90,z);
+      if(k<steps){const a=vc,b=vc+1,c=vc+2,e=vc+3;idx.push(a,c,b,b,c,e);}vc+=2;
+    }
+    const g=new T.BufferGeometry();
+    g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setIndex(idx);g.computeVertexNormals();
+    const m=new T.Mesh(g,M_BARR);m.castShadow=true;m.receiveShadow=true;group.add(m);
+  }
+  sideBarrier(HALF);sideBarrier(-HALF);sideBarrier(OFF+HALF);sideBarrier(OFF-HALF);
+  // median
+  group.add(groundPoly([[AX(OFF+HALF+1,-6),AZ(OFF+HALF+1,-6)],[AX(-HALF-1,-6),AZ(-HALF-1,-6)],
+                        [AX(-HALF-1,L),AZ(-HALF-1,L)],[AX(OFF+HALF+1,L),AZ(OFF+HALF+1,L)]],LANDY+0.08,M_GRASS,GRASS_UV));
+  // streetlights down the median
+  for(let d=120; d<L-120; d+=180){
+    const p=at(OFF/2,d),a2=at(OFF/2+3.4,d);
+    const pole=new T.Mesh(new T.CylinderGeometry(0.13,0.19,9.4,7),
+      new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4}));
+    pole.position.set(p.x,roadY+4.7,p.z);pole.castShadow=true;group.add(pole);
+    const arm=box(0.14,0.14,3.6,new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4}));
+    arm.position.set((p.x+a2.x)/2,roadY+9.2,(p.z+a2.z)/2);group.add(arm);
+    const lamp=box(0.5,0.22,0.95,M_LAMP);lamp.position.set(a2.x,roadY+9.0,a2.z);group.add(lamp);
+    const gl=new T.Mesh(GLOW_GEO,M_LAMPGLOW);gl.rotation.x=-Math.PI/2;
+    gl.position.set(a2.x,roadY+0.07,a2.z);gl.scale.setScalar(9);group.add(gl);
+  }
+  // overhead guide signs: MD 8 then MD 18 / Stevensville
+  function bgs(d,off,w,h,txt){
+    const c0=at(off,d),sy=roadY+7.4;
+    for(const s of[-1,1]){const p0=at(off+s*(HALF+2.2),d);
+      const pp=new T.Mesh(new T.CylinderGeometry(0.2,0.26,7.6,7),
+        new T.MeshStandardMaterial({color:0xa8aeb2,roughness:.6,metalness:.35}));
+      pp.position.set(p0.x,roadY+3.8,p0.z);pp.castShadow=true;group.add(pp);}
+    const span=box(HALF*2+5.4,0.42,0.42,new T.MeshStandardMaterial({color:0xa8aeb2,roughness:.6,metalness:.35}));
+    span.position.set(c0.x,sy,c0.z);span.lookAt(c0.x+eR.x,sy,c0.z+eR.z);group.add(span);
+    const panel=box(w,h,0.24,new T.MeshStandardMaterial({color:0x1f6b3a,roughness:.62}));
+    panel.position.set(c0.x,sy-h/2-0.4,c0.z);panel.lookAt(c0.x-eT.x,sy-h/2-0.4,c0.z-eT.z);
+    panel.castShadow=true;group.add(panel);
+    if(txt){const ex=box(2.2,0.9,0.26,new T.MeshStandardMaterial({color:0xe9e6dc,roughness:.7}));
+      ex.position.set(c0.x,sy-0.55,c0.z);ex.lookAt(c0.x-eT.x,sy-0.55,c0.z-eT.z);group.add(ex);}
+  }
+  bgs(150,0,9,2.6,true);bgs(720,0,9.5,3.0,true);bgs(1560,0,9,2.6,true);
+  bgs(150,OFF,9,2.6,false);bgs(1560,OFF,9,2.6,false);
+
+  /* ---------------- MD 8 exit ramp, peeling off to the right ---------------- */
+  {
+    const pos=[],uv=[],idx=[];let vc=0,steps=40;
+    for(let k=0;k<=steps;k++){
+      const f=k/steps,d=900+f*520;
+      const off=HALF+Math.pow(f,1.7)*54;               // gentle divergence
+      const w=5.0;
+      pos.push(AX(off-w,d),roadY+0.02,AZ(off-w,d), AX(off+w,d),roadY+0.02,AZ(off+w,d));
+      uv.push(0,d/6,1,d/6);
+      if(k<steps){const a=vc,b=vc+1,c=vc+2,e=vc+3;idx.push(a,c,b,b,c,e);}vc+=2;
+    }
+    const g=new T.BufferGeometry();
+    g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+    g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+    g.setIndex(idx);g.computeVertexNormals();
+    const m=new T.Mesh(g,M_ROAD);m.receiveShadow=true;group.add(m);
+    // gore-point barrels
+    for(let k=0;k<7;k++){
+      const f=k/7,d=905+f*90,off=HALF+3+Math.pow(f,1.7)*10;
+      const p=at(off,d);
+      const b=new T.Mesh(new T.CylinderGeometry(0.34,0.4,1.1,8),
+        new T.MeshStandardMaterial({color:0xe8641c,roughness:.85}));
+      b.position.set(p.x,roadY+0.55,p.z);b.castShadow=true;group.add(b);
+    }
+  }
+
+  /* =================== BAY BRIDGE MARINA =================== */
+  const M_CONC=new T.MeshStandardMaterial({color:0x8e8b80,roughness:.95});
+  // bulkhead ringing the basin
+  for(let i=0;i<BASIN.length-1;i++){
+    const a=BASIN[i],b=BASIN[i+1];
+    const ax=AX(a[0],a[1]),az=AZ(a[0],a[1]),bx=AX(b[0],b[1]),bz=AZ(b[0],b[1]);
+    const len=Math.hypot(bx-ax,bz-az);
+    const w=box(1.0,1.5,len,M_CONC);
+    w.position.set((ax+bx)/2,0.55,(az+bz)/2);w.rotation.y=Math.atan2(bx-ax,bz-az);
+    w.castShadow=true;w.receiveShadow=true;group.add(w);
+  }
+  // breakwater sheltering the mouth
+  riprap([[AX(30,-26),AZ(30,-26)],[AX(46,-56),AZ(46,-56)],[AX(96,-72),AZ(96,-72)]],5,414,group,0.35);
+  riprap([[AX(276,-20),AZ(276,-20)],[AX(270,-58),AZ(270,-58)]],4,415,group,0.35);
+  for(let k=0;k<5;k++)plant('gullpost',G_GULLPOST,M_PROP_R,AX(100+k*4,-76-k*3),0,AZ(100+k*4,-76-k*3),1,0,0,jitter(R,0.2),{far:1500});
+
+  // main dock spine along the head of the basin, with six finger piers reaching out
+  dockRun(AX(64,318),AZ(64,318),AX(250,318),AZ(250,318),3.2,group,R);
+  const PIERS=[];
+  for(let k=0;k<6;k++){
+    const off=78+k*30;
+    dockRun(AX(off,314),AZ(off,314),AX(off,104),AZ(off,104),2.6,group,R);
+    PIERS.push(off);
+  }
+  // slips: sailboats and powerboats moored either side of every pier
+  let boatCount=0;
+  for(const off of PIERS){
+    for(const side of[-1,1]){
+      for(let z=118;z<=306;z+=7.2){
+        if(R()<0.26)continue;                       // an empty slip here and there
+        const sail=R()<0.46;
+        const arr=sail?G_SAIL:G_MOTOR;
+        const i=Math.floor(R()*arr.length);
+        const o=off+side*4.6;
+        plant((sail?'sail':'mot')+i,arr[i],M_PROP,AX(o,z+(R()-0.5)*0.8),0,AZ(o,z+(R()-0.5)*0.8),
+          0.92+R()*0.16, Math.atan2(eT.x,eT.z)+Math.PI+(R()-0.5)*0.05, 0, jitter(R,0.14),{far:1900});
+        boatCount++;
+      }
+    }
+  }
+  // fuel dock + pumpout near the mouth
+  dockRun(AX(70,46),AZ(70,46),AX(128,46),AZ(128,46),3.4,group,R);
+  {const p=at(96,46);
+   const kiosk=bldg({x:p.x,z:p.z+4,w:4.2,d:3.4,h:3.0,wall:0xe8e5da,roof:0x2f6f5a,roofType:'gable',
+                     pitch:.8,eave:.8,win:false,door:false,seed:12});
+   kiosk.position.y=0.8;group.add(kiosk);
+   for(let k=0;k<2;k++){const pump=box(0.6,1.5,0.5,new T.MeshStandardMaterial({color:0xc9302c,roughness:.6}));
+     const q=at(84+k*20,44);pump.position.set(q.x,1.5,q.z);group.add(pump);}}
+
+  // travel-lift well and the working boatyard behind it
+  {
+    const wx=AX(238,300),wz=AZ(238,300);
+    for(const s of[-1,1]){
+      const rail=box(1.2,1.6,34,M_CONC);
+      const p=at(238+s*6,282);rail.position.set(p.x,0.6,p.z);group.add(rail);
+    }
+    const lift=new T.Group();
+    const blue=new T.MeshStandardMaterial({color:0x1f5fa8,roughness:.55,metalness:.3});
+    for(const sx of[-1,1])for(const sz of[-1,1]){
+      const leg=box(0.7,8.5,0.7,blue);leg.position.set(sx*5.6,4.25,sz*4.2);leg.castShadow=true;lift.add(leg);
+    }
+    for(const sz of[-1,1]){const beam=box(12.5,1.1,0.9,blue);beam.position.set(0,8.9,sz*4.2);beam.castShadow=true;lift.add(beam);}
+    const top=box(1.0,0.9,9.4,blue);top.position.set(0,8.9,0);lift.add(top);
+    lift.position.set(AX(238,286),0,AZ(238,286));lift.rotation.y=Math.atan2(eT.x,eT.z);
+    group.add(lift);
+    // hulls up on stands in the yard
+    for(let k=0;k<14;k++){
+      const off=200+R()*70, d=372+Math.floor(k/4)*26+R()*10;
+      const p=at(off,d);
+      plant('stand',G_STAND,M_PROP_R,p.x,0,p.z,1,Math.atan2(eT.x,eT.z)+(R()-0.5)*0.3,0,jitter(R,0.2),{far:1400});
+      const arr=R()<0.5?G_SAIL:G_MOTOR, i=Math.floor(R()*arr.length);
+      plant((R()<0.5?'sail':'mot')+i,arr[i],M_PROP,p.x,1.5,p.z,0.9+R()*0.15,
+        Math.atan2(eT.x,eT.z)+(R()-0.5)*0.3,0,jitter(R,0.14),{far:1400});
+    }
+    // dry-stack storage shed
+    group.add(bldg({x:AX(232,470),z:AZ(232,470),w:46,d:26,h:13,wall:0xb9c0c4,roof:0x8d969b,roofType:'flat',
+                    rot:Math.atan2(eR.x,eR.z),metal:.35,rough:.55,seed:21,litWin:false}));
+    group.add(bldg({x:AX(160,452),z:AZ(160,452),w:30,d:18,h:8,wall:0xc7cdd0,roof:0x8d969b,roofType:'gable',
+                    pitch:.7,eave:1.2,rot:Math.atan2(eR.x,eR.z),metal:.3,rough:.6,seed:22}));
+  }
+
+  // Libbey's — the waterfront restaurant, with its deck out over the basin
+  {
+    const p=at(70,368), rot=Math.atan2(-eR.x,-eR.z);
+    group.add(bldg({x:p.x,z:p.z,w:30,d:17,h:8.6,wall:0xf1f3f3,roof:0x9aa3a8,roofType:'gable',pitch:1.0,eave:1.6,
+                    rot:rot,seed:31,sign:{w:12,h:1.8,c:0xc23227,y:6.6}}));
+    // cupola
+    const cup=box(6,4.2,6,new T.MeshStandardMaterial({color:0x2f6fb0,roughness:.7}));
+    const cp=at(70,368);cup.position.set(cp.x,11.6,cp.z);group.add(cup);
+    const cr=new T.Mesh(new T.ConeGeometry(4.6,2.6,4),new T.MeshStandardMaterial({color:0xb7c0c6,roughness:.5,metalness:.4}));
+    cr.rotation.y=Math.PI/4;cr.position.set(cp.x,15.0,cp.z);group.add(cr);
+    // waterfront deck on pilings, with tent peaks
+    const dk=at(70,340);
+    const deck=box(30,0.3,20,M_DOCK);deck.position.set(dk.x,1.0,dk.z);deck.receiveShadow=true;deck.castShadow=true;group.add(deck);
+    for(let k=0;k<12;k++)plantPiling(AX(58+k*2.4,331),AZ(58+k*2.4,331),1.1,R);
+    for(let k=0;k<3;k++){
+      const t=at(58+k*12,338);
+      const peak=new T.Mesh(new T.ConeGeometry(6.4,3.0,4),
+        new T.MeshStandardMaterial({color:0xf7f9fa,roughness:.9,side:T.DoubleSide}));
+      peak.rotation.y=Math.PI/4;peak.position.set(t.x,4.4,t.z);peak.castShadow=true;group.add(peak);
+      for(const sx of[-1,1])for(const sz of[-1,1]){
+        const po=new T.Mesh(new T.CylinderGeometry(0.08,0.08,3.0,6),new T.MeshStandardMaterial({color:0xb7c0c6,roughness:.5,metalness:.4}));
+        po.position.set(t.x+sx*4.2,2.6,t.z+sz*4.2);group.add(po);
+      }
+    }
+    // café tables + umbrellas on the deck
+    for(let k=0;k<14;k++){
+      const q=at(56+R()*28,334+R()*14);
+      const tb=new T.Mesh(new T.CylinderGeometry(0.55,0.55,0.06,10),new T.MeshStandardMaterial({color:0xe9e6dc,roughness:.8}));
+      tb.position.set(q.x,1.9,q.z);group.add(tb);
+      if(R()<0.55){
+        const um=new T.Mesh(new T.ConeGeometry(1.5,0.7,8),new T.MeshStandardMaterial({color:R()<0.5?0xdbe3e8:0xe6d9c0,roughness:.9,side:T.DoubleSide}));
+        um.position.set(q.x,2.9,q.z);um.castShadow=true;group.add(um);
+        const st=new T.Mesh(new T.CylinderGeometry(0.04,0.04,1.1,5),new T.MeshStandardMaterial({color:0x9aa0a4,roughness:.5,metalness:.4}));
+        st.position.set(q.x,2.45,q.z);group.add(st);
+      }
+    }
+    // pool between restaurant and lot
+    const pl=at(118,392);
+    const pool=new T.Mesh(new T.PlaneGeometry(22,12),
+      new T.MeshStandardMaterial({color:0x1c8fb0,roughness:.08,metalness:.1}));
+    pool.rotation.x=-Math.PI/2;pool.position.set(pl.x,LANDY+0.12,pl.z);group.add(pool);
+    const surround=box(26,0.3,16,M_CONC);surround.position.set(pl.x,LANDY+0.04,pl.z);surround.receiveShadow=true;group.add(surround);
+  }
+  // ship's store / harbourmaster + marina parking
+  group.add(bldg({x:AX(112,424),z:AZ(112,424),w:20,d:13,h:6.4,wall:0xe6e2d4,roof:0x5b4a3a,roofType:'gable',
+                  pitch:1.0,eave:1.4,rot:Math.atan2(eR.x,eR.z),seed:33,porch:3}));
+  {const p=at(150,410);lot(p.x,p.z,110,52,Math.atan2(eR.x,eR.z),8,group);
+   fillLot(p.x,p.z,110,52,Math.atan2(eR.x,eR.z),4,20,R,0.34);}
+  // marina access road down from the highway
+  group.add(groundPoly([[AX(HALF+2,470),AZ(HALF+2,470)],[AX(HALF+2,456),AZ(HALF+2,456)],
+                        [AX(210,430),AZ(210,430)],[AX(210,446),AZ(210,446)]],LANDY+0.05,
+    new T.MeshStandardMaterial({map:M_LOT.map,roughness:.95,color:0x9a9a96}),0.11));
+  // marina entrance sign at the highway
+  {const p=at(HALF+9,452);
+   const s1=box(7,2.2,0.4,new T.MeshStandardMaterial({color:0x1b3f6b,roughness:.65}));
+   s1.position.set(p.x,3.0,p.z);s1.rotation.y=Math.atan2(-eT.x,-eT.z);s1.castShadow=true;group.add(s1);
+   for(const sx of[-1,1]){const q=at(HALF+9+sx*3.2,452);
+     const po=box(0.3,3.0,0.3,new T.MeshStandardMaterial({color:0xe9e6dc,roughness:.8}));
+     po.position.set(q.x,1.5,q.z);group.add(po);}}
+
+  /* =================== STEVENSVILLE =================== */
+  // water tower — the landmark you actually see from the bridge
+  {
+    const p=at(-260,1180),mt=new T.MeshStandardMaterial({color:0xdfe3e5,roughness:.6,metalness:.2});
+    const tank=new T.Mesh(new T.CylinderGeometry(9,9,10,16),mt);tank.position.set(p.x,26,p.z);tank.castShadow=true;group.add(tank);
+    const topc=new T.Mesh(new T.ConeGeometry(9,3.4,16),mt);topc.position.set(p.x,32.7,p.z);group.add(topc);
+    const botc=new T.Mesh(new T.ConeGeometry(9,4.2,16),mt);botc.rotation.x=Math.PI;botc.position.set(p.x,18.9,p.z);group.add(botc);
+    for(let k=0;k<6;k++){const a=k/6*6.28;
+      const lg=new T.Mesh(new T.CylinderGeometry(0.34,0.4,21,6),mt);
+      lg.position.set(p.x+Math.cos(a)*6.4,10.5,p.z+Math.sin(a)*6.4);lg.castShadow=true;group.add(lg);}
+  }
+  // church with a steeple
+  {
+    const p=at(-190,880);
+    group.add(bldg({x:p.x,z:p.z,w:14,d:24,h:7.5,wall:0xf0ece0,roof:0x4a4438,roofType:'gable',pitch:1.4,eave:1.0,
+                    rot:Math.atan2(eR.x,eR.z),seed:41}));
+    const tw=box(5,15,5,new T.MeshStandardMaterial({color:0xf0ece0,roughness:.88}));
+    const q=at(-190,868);tw.position.set(q.x,7.5,q.z);tw.castShadow=true;group.add(tw);
+    const sp=new T.Mesh(new T.ConeGeometry(3.6,8,4),new T.MeshStandardMaterial({color:0x4a4438,roughness:.85}));
+    sp.rotation.y=Math.PI/4;sp.position.set(q.x,19,q.z);sp.castShadow=true;group.add(sp);
+  }
+  // gas station under a lit canopy, right off the MD 8 ramp
+  {
+    const p=at(118,1470);
+    const can=box(24,1.0,15,new T.MeshStandardMaterial({color:0xf2f4f5,roughness:.5,metalness:.2}));
+    can.position.set(p.x,6.2,p.z);can.castShadow=true;group.add(can);
+    const band=box(24.3,0.9,15.3,new T.MeshStandardMaterial({color:0x1f7a4c,roughness:.6,emissive:0x1f7a4c,emissiveIntensity:0}));
+    band.position.set(p.x,5.5,p.z);group.add(band);LIT_WINDOWS.push(band.material);
+    for(const sx of[-1,1])for(const sz of[-1,1]){
+      const c=new T.Mesh(new T.CylinderGeometry(0.34,0.4,5.8,8),new T.MeshStandardMaterial({color:0xdfe3e5,roughness:.6,metalness:.2}));
+      c.position.set(p.x+sx*9,2.9,p.z+sz*5.4);c.castShadow=true;group.add(c);
+    }
+    for(let k=0;k<4;k++){
+      const q=at(112+k*9,1470);
+      const pump=box(1.0,1.9,2.2,new T.MeshStandardMaterial({color:0xe9e6dc,roughness:.7}));
+      pump.position.set(q.x,0.95,q.z);pump.castShadow=true;group.add(pump);
+    }
+    group.add(bldg({x:AX(148,1470),z:AZ(148,1470),w:18,d:12,h:5,wall:0xe8e4d6,roof:0x6a6f73,roofType:'flat',
+                    rot:Math.atan2(eR.x,eR.z),seed:51}));
+    const lp=at(140,1442);lot(lp.x,lp.z,60,34,Math.atan2(eR.x,eR.z),5,group);
+    fillLot(lp.x,lp.z,60,34,Math.atan2(eR.x,eR.z),2,12,R,0.5);
+  }
+  // shopping plaza + hotel on the north side
+  {
+    const p=at(-170,1560);
+    group.add(bldg({x:p.x,z:p.z,w:90,d:26,h:7.5,wall:0xd6cdb8,roof:0x6a6f73,roofType:'flat',
+                    rot:Math.atan2(eR.x,eR.z),seed:61,sign:{w:16,h:1.6,c:0x1b4a7a,y:6.2}}));
+    const q=at(-170,1608);lot(q.x,q.z,120,60,Math.atan2(eR.x,eR.z),9,group);
+    fillLot(q.x,q.z,120,60,Math.atan2(eR.x,eR.z),4,22,R,0.36);
+    group.add(bldg({x:AX(-300,1420),z:AZ(-300,1420),w:34,d:22,h:16,wall:0xe0d6c2,roof:0x5b4a3a,roofType:'flat',
+                    rot:Math.atan2(eR.x,eR.z)+0.3,seed:62,sign:{w:9,h:1.4,c:0x1f6b3a,y:14}}));
+  }
+  // BAY BRIDGE AIRPORT — the strip really does sit just north of the highway
+  {
+    const rw=at(-620,900);
+    const strip=new T.Mesh(new T.PlaneGeometry(30,900),
+      new T.MeshStandardMaterial({color:0x4a4d50,roughness:.95}));
+    strip.rotation.x=-Math.PI/2;strip.rotation.z=Math.atan2(eR.x,eR.z);
+    strip.position.set(rw.x,LANDY+0.05,rw.z);strip.receiveShadow=true;group.add(strip);
+    for(let k=0;k<18;k++){                               // centreline
+      const q=at(-620,540+k*44);
+      const m=new T.Mesh(new T.PlaneGeometry(1.2,16),new T.MeshStandardMaterial({color:0xe6e3d6,roughness:.9}));
+      m.rotation.x=-Math.PI/2;m.rotation.z=Math.atan2(eR.x,eR.z);m.position.set(q.x,LANDY+0.07,q.z);group.add(m);
+    }
+    for(let k=0;k<3;k++){
+      group.add(bldg({x:AX(-700,700+k*46),z:AZ(-700,700+k*46),w:26,d:20,h:7,wall:0xc2c8cb,roof:0x939a9e,
+                      roofType:'gable',pitch:.55,eave:1.0,rot:Math.atan2(eR.x,eR.z),metal:.35,rough:.55,seed:70+k,litWin:false}));
+    }
+    const ws=at(-676,640);                               // windsock
+    const wp=new T.Mesh(new T.CylinderGeometry(0.1,0.13,7,6),new T.MeshStandardMaterial({color:0xdfe3e5,roughness:.6,metalness:.3}));
+    wp.position.set(ws.x,3.5,ws.z);group.add(wp);
+    const sock=new T.Mesh(new T.ConeGeometry(0.7,2.6,8,1,true),
+      new T.MeshStandardMaterial({color:0xe8641c,roughness:.9,side:T.DoubleSide}));
+    sock.rotation.z=Math.PI/2;sock.position.set(ws.x+1.4,6.6,ws.z);group.add(sock);
+  }
+
+  /* ---------------- neighbourhoods, woods, marsh ---------------- */
+  const wallCols=[0xe4dcc8,0xd2c4a4,0xf0e9d8,0xb9a78a,0xdccfb2,0xc9bb9c,0xefe6d2,0xa89070,0xcdd6d8,0x9fb0a8];
+  const roofCols=[0x5b4a3a,0x4a3d2f,0x6b5541,0x3d3226,0x5a4638,0x2f2820,0x55606a];
+  for(let d=560; d<L; d+=34){
+    for(const side of[-1,1]){
+      if(R()<0.34)continue;
+      const base=side<0?(OFF-HALF-60-R()*150):(HALF+60+R()*150);
+      if(side>0&&d<560)continue;
+      if(side<0&&d>520&&d<1120&&base<OFF-HALF-380)continue;      // keep the runway clear
+      const p=at(base,d+(R()-0.5)*22);
+      group.add(bldg({x:p.x,z:p.z,w:8+R()*6,d:7+R()*5,h:3.4+R()*2.4,
+        wall:wallCols[Math.floor(R()*wallCols.length)],roof:roofCols[Math.floor(R()*roofCols.length)],
+        roofType:R()<0.35?'hip':'gable',pitch:1.05,eave:0.8,porch:R()<0.45?2.2:0,
+        rot:Math.atan2(side*eR.x,side*eR.z)+(R()-0.5)*0.5,seed:Math.floor(R()*999)}));
+    }
+  }
+  // marsh along the shoreline and the basin edges
+  for(let k=0;k<900;k++){
+    const off=-900+R()*1800, d=-4+R()*46;
+    if(off>30&&off<280&&d>-2)continue;                          // not inside the basin
+    const p=at(off,d);plantMarsh(p.x,p.z,0.8+R()*0.7,R,R()<0.45);
+  }
+  // a fringe of marsh inside the basin walls, never across the open water
+  for(let k=0;k<200;k++){
+    const off=R()<0.5?(36+R()*7):(258+R()*7), d=6+R()*326;
+    const p=at(off,d);plantMarsh(p.x,p.z,0.7+R()*0.5,R,true);
+  }
+  for(let k=0;k<70;k++){const p=at(44+R()*214,330+R()*10);plantMarsh(p.x,p.z,0.7+R()*0.5,R,true);}
+  // treeline: dense near the road, thinning out to the horizon
+  for(let k=0;k<2300;k++){
+    const d=20+R()*(L+900);
+    const side=R()<0.5?-1:1;
+    const band=R();
+    const base=band<0.42?(14+R()*36):(band<0.78?(60+R()*170):(240+R()*900));
+    const off=side<0?(OFF-HALF-base):(HALF+base);
+    const p=at(off,d);
+    // keep the basin, yard, buildings and runway clear
+    if(side>0&&d<440&&off<HALF+300)continue;
+    if(side>0&&d>440&&d<520&&off<HALF+280)continue;
+    if(side<0&&d>500&&d<1150&&off>OFF-HALF-760&&off<OFF-HALF-480)continue;
+    plantTree(p.x,p.z,0.8+R()*0.75,R,0,base>240);
+  }
+  for(let k=0;k<700;k++){
+    const d=20+R()*(L+600),side=R()<0.5?-1:1;
+    const base=12+R()*120;
+    const off=side<0?(OFF-HALF-base):(HALF+base);
+    if(side>0&&d<440&&off<HALF+300)continue;
+    const p=at(off,d);plantBush(p.x,p.z,0.8+R()*0.9,R);
+  }
+  // mailbox posts along the frontage
+  for(let d=560; d<L; d+=26){
+    if(R()<0.5)continue;
+    for(const side of[-1,1]){
+      const off=side<0?(OFF-HALF-9):(HALF+9);
+      if(side>0&&d<560)continue;
+      const p=at(off,d);
+      const post=new T.Mesh(new T.CylinderGeometry(0.07,0.07,1.1,5),
+        new T.MeshStandardMaterial({color:0x8b7a5c,roughness:.9}));
+      post.position.set(p.x,0.55,p.z);post.castShadow=true;group.add(post);
+    }
+  }
+}
+
+
+function buildShores(group){
+  buildSandyPoint(group);
+  buildKentIsland(group);
+  // Marsh grass on the shallow trestle sections in mid-bay — only where the deck is low
+  // enough for there to be a bar under it.
+  const R=mulberry(5150), TWIN_OFF=-44;
+  for(let ii=6; ii<N-4; ii+=5){
+    const P=PATH_POS[ii],Rt=PATH_RIGHT[ii];
+    if(P.y>5.0)continue;
+    for(const oc of[0,TWIN_OFF])for(const sgn of[-1,1]){
+      const w=ROAD_HALF+3+R()*11;
+      plantMarsh(P.x+Rt.x*(oc+sgn*w), P.z+Rt.z*(oc+sgn*w), 0.8+R()*0.7, R, R()<0.5);
+    }
+  }
+}
+
 function buildCargoShip(){const g=new T.Group();
   const hull=box(16,7,64,new T.MeshStandardMaterial({color:0x2b3a44,roughness:.8}));hull.position.y=1.4;g.add(hull);
   const deck=box(16.4,1.2,64,new T.MeshStandardMaterial({color:0x8a5a3a,roughness:.85}));deck.position.y=4.8;g.add(deck);
@@ -1438,11 +2205,6 @@ function placeVehicle(v,s,x,yaw){
 }
 
 /* =============================== SKY / WATER / LIGHTS =============================== */
-/* Colour pipeline note: every authored hex in this file is an sRGB value. The renderer
-   works in linear light, so sRGB() converts on the way in and the composite pass encodes
-   back to sRGB on the way out. Skipping that conversion is what made the old build look
-   chalky — mid-tones sat ~2.2 gamma too bright and every colour lost its saturation. */
-const sRGB=h=>new T.Color(h).convertSRGBToLinear();
 const SKY_VERT='varying vec3 vW; void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}';
 const SKY_FRAG=[
 'varying vec3 vW;',
@@ -1567,7 +2329,7 @@ function buildWater(){
          'vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;',
          'float sw=sin(wp0.x*0.0075+uTime*0.28)*0.55+sin(wp0.z*0.0061-uTime*0.21)*0.45;',
          'sw+=sin((wp0.x+wp0.z)*0.0037+uTime*0.15)*0.6;',
-         'transformed.z+=sw*uSwell*0.62;',   // plane is XY before the -90deg X rotation
+         'transformed.z+=sw*uSwell*0.09;',   // plane is XY before the -90deg X rotation
          'vWPos=(modelMatrix*vec4(transformed,1.0)).xyz;'].join('\n'));
     sh.fragmentShader='varying vec3 vWPos;\nuniform float uTime,uChop,uGlitter;\nuniform vec3 uSunDir,uSunCol;\nvec3 gWaveN=vec3(0.0,1.0,0.0);\n'+sh.fragmentShader
       .replace('#include <normal_fragment_maps>',
@@ -1736,7 +2498,7 @@ function updateRain(dt){if(!rainSys)return;rainSys.material.opacity=0.55*rain;if
 
 /* =============================== BUILD WORLD =============================== */
 function buildWorld(){
-  buildPath();
+  buildPath();buildVegLibrary();buildPropLibrary();
   const world=new T.Group();scene.add(world);
   // shadow ribbons on the water first (under everything) for depth
   // (fake shadow ribbon removed — the real sun-cast shadow on the water is the sole shadow now)
@@ -1771,6 +2533,7 @@ function buildWorld(){
   buildWater();
   buildTraffic();
   buildAmbience();
+  scatterFlush(world);
   player=makeVehicle('suv',0xcfd2d3);scene.add(player.group);
   // real headlight beam (no shadow — cheap) that lights the road at night
   const beam=new T.SpotLight(0xfff0d6,0,80,Math.PI/5.0,0.5,1.2);
@@ -1799,7 +2562,7 @@ function init(){
   hemi=new T.HemisphereLight(0xcfe4f0,0x8a7c64,0.6);scene.add(hemi);
   sunLight=new T.DirectionalLight(0xfff2dc,1.25);sunLight.castShadow=true;sunLight.shadow.mapSize.set(2048,2048);
   // A tight box that rides with the car gives far crisper shadows than one box over the whole bay.
-  const sc=sunLight.shadow.camera;sc.near=1;sc.far=700;sc.left=-150;sc.right=150;sc.top=150;sc.bottom=-150;
+  const sc=sunLight.shadow.camera;sc.near=1;sc.far=900;sc.left=-260;sc.right=260;sc.top=260;sc.bottom=-260;
   sunLight.shadow.bias=-0.0004;sunLight.shadow.normalBias=0.035;sunLight.shadow.radius=3;
   scene.add(sunLight);scene.add(sunLight.target);
   buildSky();clock=new T.Clock();buildWorld();buildRain();
@@ -1889,8 +2652,8 @@ function updateEnvironment(dt){
   sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.6);
   // Shadow box rides just ahead of the car. Small box + 2k map = sharp contact shadows.
   const fwd=sampleAtS(car.s).tan;
-  const fx=cx+fwd.x*55, fz=cz+fwd.z*55, fy=player?player.group.position.y:0;
-  sunLight.position.set(fx+s.sunDir.x*300, fy+s.sunDir.y*300+30, fz+s.sunDir.z*300);
+  const fx=cx+fwd.x*95, fz=cz+fwd.z*95, fy=player?player.group.position.y:0;
+  sunLight.position.set(fx+s.sunDir.x*400, fy+s.sunDir.y*400+30, fz+s.sunDir.z*400);
   sunLight.target.position.set(fx,fy,fz);
   sunLight.shadow.camera.updateProjectionMatrix();
 
@@ -1928,6 +2691,7 @@ function updateEnvironment(dt){
   // ---- night lighting ----
   const night=Math.max(0,Math.min(1,(0.34-s.day)/0.30))+wet*0.3;
   M_LAMP.emissiveIntensity=night*2.4;
+  for(const m of LIT_WINDOWS)m.emissiveIntensity=night*1.5;
   M_LAMPGLOW.opacity=Math.min(0.8,night*0.6);
 
   // ---- water ----
@@ -1940,7 +2704,7 @@ function updateEnvironment(dt){
     if(waterUni){
       waterUni.uTime.value+=dt*(1+rain*0.9);
       waterUni.uChop.value=0.85+rain*1.5;
-      waterUni.uSwell.value=1+rain*1.2;
+      waterUni.uSwell.value=1+rain*0.6;
       waterUni.uSunDir.value.copy(s.sunDir);
       waterUni.uSunCol.value.copy(s.sunCol);
       waterUni.uGlitter.value=(0.18+s.day*0.62)*(1-wet*0.75);
@@ -2081,13 +2845,16 @@ let bannerTimer=0;
 function flash(big,small){document.getElementById('bBig').textContent=big;document.getElementById('bSmall').textContent=small||'';
   document.getElementById('banner').classList.add('show');bannerTimer=2.2;}
 function segmentName(z){
-  if(z<250)return['Sandy Point','WESTERN SHORE'];
+  if(z<70)  return['Sandy Point','STATE PARK · WESTERN SHORE'];
+  if(z<330) return['Sandy Point Causeway','LEAVING ANNE ARUNDEL'];
   if(z<1300)return['Western Approach','CURVE & CLIMB'];
   if(z<2350)return['Suspension Span','WESTERN CHANNEL · 186 ft'];
   if(z<2760)return['Deck Truss Spans','FLANKING SECTION'];
   if(z<3200)return['Through-Truss','EASTERN CHANNEL · 58 ft'];
-  if(z<6400)return['Bay Trestle','OPEN WATER'];
-  return['Kent Island','STEVENSVILLE'];
+  if(z<6250)return['Bay Trestle','OPEN WATER'];
+  if(z<6900)return['Kent Island Approach','QUEEN ANNE\'S COUNTY'];
+  if(z<7360)return['Bay Bridge Marina','STEVENSVILLE'];
+  return['Stevensville','US 50/301 · KENT ISLAND'];
 }
 function updateHUD(dt){
   const z=player.group.position.z;const seg=segmentName(z);elSeg.textContent=seg[0];elSub.textContent=seg[1];
@@ -2113,6 +2880,7 @@ function animate(){
   if(car.started&&!finished)updateCar(dt);
   else placeVehicle(player,car.s,car.x,car.head);
   updateCamera(dt);updateTraffic(dt);updateEnvironment(dt);updateRain(dt);updateHUD(dt);
+  updateScatterCulling();
   FRAME++;renderFrame();
 }
 init();
