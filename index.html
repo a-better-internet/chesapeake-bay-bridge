@@ -80,7 +80,7 @@
   <div><b>A D</b>/<b>← →</b> steer · <b>Space</b> handbrake</div>
   <div><b>R</b> rain · <b>N</b> auto day/night · <b>, .</b> time</div>
   <div><b>C</b> camera · <b>H</b> hide traffic · <b>B</b> gear up</div>
-  <div><b>O</b> bird's eye · <b>Scroll</b> zoom · <b>Drag</b> orbit (cinema)</div>
+  <div><b>O</b> bird's eye · <b>P</b> effects · <b>Scroll</b> zoom · <b>Drag</b> orbit</div>
 </div>
 
 <div class="hud" id="speedo"><div id="mph">0</div><div id="mphu">MPH</div><div id="gearind">GEAR 2</div></div>
@@ -103,8 +103,9 @@
     <div class="eye">MARYLAND · US 50/301 · EST. 1952</div>
     <h1>Bay Bridge Crossing</h1>
     <p>Drive the full 4.3-mile William Preston Lane Jr. Memorial Bridge — Sandy Point to
-       Stevensville. Up over the western suspension span, through the steel truss cage above
-       the eastern channel, then the long trestle to Kent Island. End to end is about four minutes.</p>
+       Stevensville. Out past the state park beach and the toll plaza, up over the western
+       suspension span, through the steel truss cage above the eastern channel, then the long
+       trestle to Kent Island and the boats at Bay Bridge Marina. About four minutes, end to end.</p>
     <div class="grid">
       <b>Drive</b><span>W A S D or Arrow keys</span>
       <b>Handbrake</b><span>Space</span>
@@ -142,7 +143,8 @@ let PATH_POS=[],PATH_TAN=[],PATH_RIGHT=[],PATH_CUM=[],PATH_LEN=1,curve;
 // ---- driving state (road-space kinematic model) --------------------------
 const car={ s:20, x:-1.9, head:0, speed:0, steer:0, gear:2, started:false };
 const GEARS=[null,{a:0.75,m:0.6,label:'1 · LOW'},{a:1.0,m:1.0,label:'2 · DRIVE'},{a:1.55,m:1.25,label:'3 · OVERDRIVE'},{a:2.1,m:1.6,label:'4 · SUPER OVERDRIVE'},{a:2.8,m:2.15,label:'5 · MEGA OVERDRIVE'},{a:3.8,m:2.9,label:'6 · LUDICROUS'}];
-let finished=false;
+let finished=false, stopped=false;
+const RUNOUT=1250;   // metres of Kent Island highway drivable past the bridge end
 const keys={};
 let camMode=0, showTraffic=true;
 let camZoom=1, cineYaw=0.7, cinePitch=0.5, dragging=false, lastMX=0, lastMY=0;
@@ -188,9 +190,16 @@ function roadTexture(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
   x.globalAlpha=1;for(let i=0;i<10;i++)crack(x,Math.random()*w,Math.random()*h,60+Math.random()*120,Math.random()*Math.PI,1);
   x.strokeStyle='rgba(24,26,28,0.5)';x.lineWidth=3;
   for(let i=0;i<5;i++){const yy=Math.random()*h;x.beginPath();x.moveTo(0,yy);for(let xx=0;xx<=w;xx+=16)x.lineTo(xx,yy+(Math.random()-.5)*6);x.stroke();}
-  // markings: double yellow + white edge
-  x.globalAlpha=1;x.fillStyle='#e6b13a';x.fillRect(w*.5-14,0,7,h);x.fillRect(w*.5+7,0,7,h);
-  x.fillStyle='#e9edef';x.fillRect(w-16,0,7,h);
+  // Markings. One texture tile spans 6 m of road, so a single dash plus its gap makes a
+  // convincing broken line at highway scale.
+  x.globalAlpha=1;
+  x.fillStyle='#d8b23f';x.fillRect(11,0,7,h);            // solid yellow left (median) edge
+  x.fillStyle='#e9edef';x.fillRect(w-18,0,7,h);          // solid white right edge
+  x.fillRect(w*.5-3.5,0,7,h*0.34);                       // broken white lane divider
+  // paint wear: the lines are not freshly struck
+  x.globalAlpha=.12;x.fillStyle='#6f7275';
+  for(let i=0;i<40;i++)x.fillRect(Math.random()*w,Math.random()*h,3+Math.random()*9,1+Math.random()*2);
+  x.globalAlpha=1;
   return tex(c,1,1);}
 function roadBump(){const w=256,h=1024,c=cvs(w,h),x=c.getContext('2d');
   x.fillStyle='#808080';x.fillRect(0,0,w,h);
@@ -380,6 +389,16 @@ function buildPath(){
 }
 const _p=new T.Vector3(),_t=new T.Vector3(),_r=new T.Vector3();
 function sampleAtS(s){
+  if(s>PATH_LEN){
+    // straight runout onto Kent Island, easing down to the island road level on the same
+    // profile the carriageway ribbons use
+    const d=s-PATH_LEN, P=PATH_POS[N];
+    const kY=LANDY+0.10;
+    const y=P.y+(kY-P.y)*Math.max(0,Math.min(1,(d+8)/88));
+    _p.set(P.x+PATH_TAN[N].x*d, y, P.z+PATH_TAN[N].z*d);
+    _t.copy(PATH_TAN[N]);_r.copy(PATH_RIGHT[N]);
+    return {pos:_p,tan:_t,right:_r};
+  }
   const u=Math.max(0,Math.min(1,s/PATH_LEN));
   const f=u*N,i=Math.floor(f),g=f-i,j=Math.min(N,i+1);
   _p.lerpVectors(PATH_POS[i],PATH_POS[j],g);
@@ -468,7 +487,7 @@ const M_BLOB=new T.MeshBasicMaterial({map:T_BLOB,transparent:true,depthWrite:fal
 const M_FOAM=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,depthWrite:false,fog:true});
 const M_LAMP=new T.MeshStandardMaterial({color:0x3a3d40,emissive:0xffd98a,emissiveIntensity:0,roughness:.5});
 const M_LAMPGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
-const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,color:0x6a5836,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
+const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,color:0x4a3c22,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
 const FOAM_GEO=new T.CircleGeometry(1,20);
 const GLOW_GEO=new T.CircleGeometry(1,16);
 
@@ -553,7 +572,7 @@ function suspensionCables(t1,t2,i1,i2,ox,group){ox=ox||0;
 // characteristic tall light standards along the median (left) barrier
 function addLightPoles(ox,group){
   const poleMat=new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4});
-  for(let i=8;i<N-4;i+=18){const P=PATH_POS[i],R=PATH_RIGHT[i];
+  for(let i=8;i<N-4;i+=11){const P=PATH_POS[i],R=PATH_RIGHT[i];
     const s=-1; // left barrier / median side
     const bx=P.x+R.x*(s*(ROAD_HALF-0.1)+ox), bz=P.z+R.z*(s*(ROAD_HALF-0.1)+ox);
     const pole=new T.Mesh(new T.CylinderGeometry(0.16,0.22,9,7),poleMat);
@@ -564,7 +583,7 @@ function addLightPoles(ox,group){
     const lamp=box(0.5,0.2,0.9,M_LAMP);lamp.position.set(lx,P.y+8.8,lz);group.add(lamp);
     // warm pool of light thrown on the road (fades in at night)
     const pool=new T.Mesh(GLOW_GEO,M_LAMPGLOW);pool.rotation.x=-Math.PI/2;
-    pool.position.set(P.x+R.x*ox,P.y+0.09,P.z+R.z*ox);pool.scale.set(7,9,1);group.add(pool);
+    pool.position.set(P.x+R.x*ox,P.y+0.09,P.z+R.z*ox);pool.scale.set(8.5,13,1);group.add(pool);
   }
 }
 // flush expansion-joint lines across the deck (detail, sits on the road surface)
@@ -967,17 +986,26 @@ function riprap(pts,rows,seed,group,y){
 /* --------------------------- BUILDINGS ---------------------------
    One parameterised shell covers everything on both shores: clapboard houses,
    the marina's metal sheds, the Stevensville strip, the park bathhouse.        */
+/* Shared-material cache: a hundred houses that each minted their own wall material could
+   never be batched together, however identical they looked. */
+const _MATC=new Map();
+function stdMat(hex,rough,metal){
+  const k=hex+'|'+rough+'|'+metal;
+  let m=_MATC.get(k);
+  if(!m){m=new T.MeshStandardMaterial({color:hex,roughness:rough,metalness:metal});_MATC.set(k,m);}
+  return m;
+}
 const M_GLASSDK=new T.MeshStandardMaterial({color:0x1d2c34,roughness:.12,metalness:.75});
 const M_WINLIT =new T.MeshStandardMaterial({color:0x2a3138,roughness:.15,metalness:.6,emissive:0xffcf8a,emissiveIntensity:0});
-const LIT_WINDOWS=[];
+const LIT_WINDOWS=[M_WINLIT];
 function bldg(o){
   const g=new T.Group();
   const w=o.w,d=o.d,h=o.h;
-  const wall=new T.MeshStandardMaterial({color:o.wall,roughness:o.rough===undefined?.88:o.rough,metalness:o.metal||0});
-  const roofM=new T.MeshStandardMaterial({color:o.roof,roughness:.85});
+  const wall=stdMat(o.wall,o.rough===undefined?.88:o.rough,o.metal||0);
+  const roofM=stdMat(o.roof,.85,0);
   const body=box(w,h,d,wall);body.position.y=h/2;body.castShadow=true;body.receiveShadow=true;g.add(body);
   // foundation band grounds the box instead of letting it float on the grass
-  const fnd=box(w+0.22,0.45,d+0.22,new T.MeshStandardMaterial({color:0xa9a396,roughness:.95}));
+  const fnd=box(w+0.22,0.45,d+0.22,stdMat(0xa9a396,.95,0));
   fnd.position.y=0.22;fnd.receiveShadow=true;g.add(fnd);
   const rt=o.roofType||'gable';
   if(rt==='gable'){
@@ -993,14 +1021,13 @@ function bldg(o){
   }else{ // flat commercial roof with a parapet and a couple of rooftop units
     const par=box(w+0.3,0.55,d+0.3,roofM);par.position.y=h+0.2;par.castShadow=true;g.add(par);
     const R=mulberry((o.seed||3)*17);
-    for(let k=0;k<2;k++){const u=box(1.6+R(),0.9,1.4+R(),new T.MeshStandardMaterial({color:0x9aa0a4,roughness:.7,metalness:.3}));
+    for(let k=0;k<2;k++){const u=box(1.6+R(),0.9,1.4+R(),stdMat(0x9aa0a4,.7,.3));
       u.position.set((R()-0.5)*w*0.5,h+0.65,(R()-0.5)*d*0.5);g.add(u);}
   }
   // window grid on the two long faces
   if(o.win!==false){
     const rows=Math.max(1,Math.floor(h/3.1)),cols=Math.max(1,Math.floor(w/3.4));
-    const wm=o.litWin===false?M_GLASSDK:M_WINLIT.clone();
-    if(o.litWin!==false)LIT_WINDOWS.push(wm);
+    const wm=o.litWin===false?M_GLASSDK:M_WINLIT;
     for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
       const px=(c-(cols-1)/2)*(w/cols), py=h*(0.30+r*0.62/rows)+0.3;
       for(const sz of[1,-1]){
@@ -1017,16 +1044,16 @@ function bldg(o){
     }
   }
   if(o.door!==false){
-    const dr=box(1.1,2.1,0.14,new T.MeshStandardMaterial({color:o.doorC||0x46351f,roughness:.7}));
+    const dr=box(1.1,2.1,0.14,stdMat(o.doorC||0x46351f,.7,0));
     dr.position.set(w*0.1,1.05,d/2+0.05);g.add(dr);
-    const st=box(2.0,0.3,1.0,new T.MeshStandardMaterial({color:0xbdb4a4,roughness:.95}));
+    const st=box(2.0,0.3,1.0,stdMat(0xbdb4a4,.95,0));
     st.position.set(w*0.1,0.3,d/2+0.6);st.receiveShadow=true;g.add(st);
   }
   if(o.porch){ // covered porch across the front — very Eastern Shore
     const pr=box(w*0.92,0.16,o.porch,roofM);pr.position.set(0,h*0.62,d/2+o.porch/2);pr.castShadow=true;g.add(pr);
     for(const sx of[-1,1]){const p=new T.Mesh(new T.CylinderGeometry(0.09,0.09,h*0.62,6),wall);
       p.position.set(sx*w*0.42,h*0.31,d/2+o.porch-0.2);g.add(p);}
-    const dk=box(w*0.92,0.2,o.porch,new T.MeshStandardMaterial({color:0xb0a48c,roughness:.92}));
+    const dk=box(w*0.92,0.2,o.porch,stdMat(0xb0a48c,.92,0));
     dk.position.set(0,0.42,d/2+o.porch/2);dk.receiveShadow=true;g.add(dk);
   }
   if(o.sign){
@@ -1227,7 +1254,7 @@ function buildSandyPoint(group){
     for(let k=0;k<=steps;k++){
       const f=k/steps, z=-1000+f*1012;
       const y=z<-70?roadY:roadY+(DECKY-roadY)*Math.pow((z+70)/70,1.6);
-      pos.push(cx-w/2,y,z, cx+w/2,y,z);uv.push(0,z/26,1,z/26);
+      pos.push(cx-w/2,y,z, cx+w/2,y,z);uv.push(0,z/6,1,z/6);
       if(k<steps){const a=vc,b=vc+1,c=vc+2,d=vc+3;idx.push(a,c,b,b,c,d);}vc+=2;
     }
     const g=new T.BufferGeometry();
@@ -2306,7 +2333,7 @@ function skyState(tod){
   // haze thickens near sunrise/sunset and in rain; it is what gives the bay its depth
   const haze=0.24+horizon*0.42;
   return {sunDir,top,bot,horiz,horizOpp,sunCol,lightCol,haze,
-    lightInt:0.10+day*2.35, ambInt:0.16+day*0.40, hemiInt:0.14+day*0.46,
+    lightInt:0.10+day*2.35, ambInt:0.24+day*0.36, hemiInt:0.21+day*0.42,
     fog:horiz.clone().lerp(top,0.20), day,horizon};
 }
 
@@ -2484,16 +2511,25 @@ function renderFrame(){
   renderer.setRenderTarget(null);fsQuad.material=matComp;renderer.render(fsScene,fsCam);
 }
 
-function buildRain(){const cnt=2600,pos=[],vel=[];
-  for(let i=0;i<cnt;i++){pos.push((Math.random()-.5)*260,Math.random()*160,(Math.random()-.5)*260);vel.push(0.9+Math.random()*0.6);}
+function rainTexture(){const w=16,h=64,c=cvs(w,h),x=c.getContext('2d');
+  x.clearRect(0,0,w,h);
+  const g=x.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,'rgba(210,232,245,0)');g.addColorStop(0.45,'rgba(225,240,250,0.85)');
+  g.addColorStop(0.75,'rgba(200,225,240,0.5)');g.addColorStop(1,'rgba(200,225,240,0)');
+  x.fillStyle=g;x.fillRect(w*0.34,0,w*0.32,h);
+  return texL(c,1,1);}
+function buildRain(){const cnt=4200,pos=[],vel=[];
+  for(let i=0;i<cnt;i++){pos.push((Math.random()-.5)*150,Math.random()*120,(Math.random()-.5)*150);vel.push(0.9+Math.random()*0.7);}
   const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
-  const m=new T.PointsMaterial({color:0xbcd6e6,size:0.5,transparent:true,opacity:0,fog:true});
+  const m=new T.PointsMaterial({map:rainTexture(),color:0xcfe2ee,size:1.5,sizeAttenuation:true,
+    transparent:true,opacity:0,depthWrite:false,fog:true});
   rainSys=new T.Points(g,m);rainSys.userData.vel=vel;scene.add(rainSys);}
-function updateRain(dt){if(!rainSys)return;rainSys.material.opacity=0.55*rain;if(rain<0.01)return;
+function updateRain(dt){if(!rainSys)return;rainSys.material.opacity=0.75*rain;if(rain<0.01)return;
   const p=rainSys.geometry.attributes.position.array,vel=rainSys.userData.vel;
   const cx=player.group.position.x,cz=player.group.position.z,cy=player.group.position.y;
-  for(let i=0;i<p.length;i+=3){p[i+1]-=vel[i/3]*80*dt;
-    if(p[i+1]<cy-4){p[i+1]=cy+120;p[i]=cx+(Math.random()-.5)*240;p[i+2]=cz+(Math.random()-.5)*240;}}
+  for(let i=0;i<p.length;i+=3){p[i+1]-=vel[i/3]*95*dt;
+    if(p[i+1]<cy-4||Math.abs(p[i]-cx)>90||Math.abs(p[i+2]-cz)>90){
+      p[i+1]=cy+70+Math.random()*50;p[i]=cx+(Math.random()-.5)*150;p[i+2]=cz+(Math.random()-.5)*150;}}
   rainSys.geometry.attributes.position.needsUpdate=true;}
 
 /* =============================== BUILD WORLD =============================== */
@@ -2534,15 +2570,69 @@ function buildWorld(){
   buildTraffic();
   buildAmbience();
   scatterFlush(world);
+  batchStatics(world);
   player=makeVehicle('suv',0xcfd2d3);scene.add(player.group);
   // real headlight beam (no shadow — cheap) that lights the road at night
-  const beam=new T.SpotLight(0xfff0d6,0,80,Math.PI/5.0,0.5,1.2);
+  const beam=new T.SpotLight(0xfff0d6,0,110,Math.PI/4.2,0.62,1.1);
   beam.position.set(0,1.0,player.L*0.5+0.6);
   const btgt=new T.Object3D();btgt.position.set(0,-2.0,30);player.group.add(btgt);player.group.add(beam);beam.target=btgt;
   player.beam=beam;
+  // one wide, soft wash rather than two overlapping discs with a hard rim
   player.headPools=[];
-  for(const sx of[-0.6,0.6]){const p=new T.Mesh(GLOW_GEO,M_HEADGLOW);p.rotation.x=-Math.PI/2;
-    p.position.set(sx,0.06,player.L+4.2);p.scale.set(2.5,6.5,1);player.group.add(p);player.headPools.push(p);}
+  {const p=new T.Mesh(GLOW_GEO,M_HEADGLOW);p.rotation.x=-Math.PI/2;
+   p.position.set(0,0.05,player.L+9);p.scale.set(5.2,15,1);player.group.add(p);player.headPools.push(p);}
+}
+
+
+/* ---------------------- STATIC GEOMETRY BATCHING ----------------------
+   The bridge is built from thousands of individual little meshes — pier caps, truss
+   members, railing posts, expansion joints. They never move and they share a handful of
+   materials, so once the world is positioned we bake their world transforms and merge
+   them per material per 300 m chunk. Appearance is identical; the truss section alone
+   drops from ~5k draw calls to a few dozen, and the merged chunks get tight bounding
+   spheres so frustum culling finally works on them too. */
+function batchStatics(root){
+  root.updateMatrixWorld(true);
+  const bins=new Map(), doomed=[];
+  root.traverse(o=>{
+    if(!o.isMesh||o.isInstancedMesh)return;
+    const g=o.geometry;
+    if(!g||!g.attributes.position)return;
+    if(g.attributes.position.count>3000)return;          // leave the long ribbons alone
+    const p=new T.Vector3().setFromMatrixPosition(o.matrixWorld);
+    const key=o.material.uuid+'|'+Math.round(p.x/300)+'_'+Math.round(p.z/300)+'|'
+             +(o.castShadow?1:0)+(o.receiveShadow?1:0)+'|'+o.renderOrder;
+    let e=bins.get(key);
+    if(!e){e={mat:o.material,cast:o.castShadow,recv:o.receiveShadow,ro:o.renderOrder,list:[]};bins.set(key,e);}
+    e.list.push(o);doomed.push(o);
+  });
+  let merged=0,removed=0;
+  const nm=new T.Matrix3();
+  bins.forEach(e=>{
+    if(e.list.length<2)return;
+    const P=[],NN=[],UU=[];
+    for(const o of e.list){
+      const g=o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone();
+      g.applyMatrix4(o.matrixWorld);
+      const pos=g.attributes.position,nor=g.attributes.normal,uv=g.attributes.uv;
+      for(let i=0;i<pos.count;i++){
+        P.push(pos.getX(i),pos.getY(i),pos.getZ(i));
+        if(nor)NN.push(nor.getX(i),nor.getY(i),nor.getZ(i));else NN.push(0,1,0);
+        if(uv)UU.push(uv.getX(i),uv.getY(i));else UU.push(0,0);
+      }
+      g.dispose();
+    }
+    const out=new T.BufferGeometry();
+    out.setAttribute('position',new T.Float32BufferAttribute(P,3));
+    out.setAttribute('normal',new T.Float32BufferAttribute(NN,3));
+    out.setAttribute('uv',new T.Float32BufferAttribute(UU,2));
+    out.computeBoundingSphere();
+    const m=new T.Mesh(out,e.mat);
+    m.castShadow=e.cast;m.receiveShadow=e.recv;m.renderOrder=e.ro;
+    root.add(m);merged++;
+    for(const o of e.list){if(o.parent)o.parent.remove(o);o.geometry.dispose();removed++;}
+  });
+  return {merged,removed};
 }
 
 /* =============================== INIT =============================== */
@@ -2593,6 +2683,7 @@ function addInput(){
   addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;
     if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
     if(k==='r'){rainTarget=rainTarget>0.5?0:1;flash(rainTarget>0.5?'Rain':'Clearing');}
+    if(k==='p'){POST.on=!POST.on;flash(POST.on?'Effects On':'Effects Off','BLOOM · GRADE · GRAIN');}
     if(k==='n'){autoTime=!autoTime;flash(autoTime?'Time: auto':'Time: fixed');}
     if(k===','){timeOfDay=(timeOfDay-0.03+1)%1;} if(k==='.'){timeOfDay=(timeOfDay+0.03)%1;}
     if(k==='c'){camMode=(camMode+1)%(camMode===3?4:3);flash(['Chase','Hood','Cinematic'][camMode]);}
@@ -2644,13 +2735,13 @@ function updateEnvironment(dt){
   // ---- fog: tuned to the horizon band so distant geometry dissolves into the sky ----
   const waterC=sRGB(0x2f5058).lerp(s.horiz,0.16+0.30*(1-s.day));
   scene.fog.color.copy(s.fog).lerp(waterC,0.42*s.day).lerp(sRGB(0x7d8b94),wet*0.55);
-  scene.fog.near=rain>0.5?110:200;scene.fog.far=rain>0.5?1150:2400;
+  scene.fog.near=200-wet*130;scene.fog.far=2400-wet*1500;
 
   // ---- lights ----
   amb.intensity=s.ambInt*(1-wet*0.25)*0.40;
   hemi.intensity=s.hemiInt*(1-wet*0.30)*0.68;
   hemi.color.copy(s.horiz);hemi.groundColor.copy(sRGB(0x4a4535).lerp(s.horiz,0.25));
-  sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.6);
+  sunLight.color.copy(s.lightCol);sunLight.intensity=s.lightInt*(1-wet*0.88);
   // Shadow box rides just ahead of the car. Small box + 2k map = sharp contact shadows.
   const fwd=sampleAtS(car.s).tan;
   const fx=cx+fwd.x*70, fz=cz+fwd.z*70, fy=player?player.group.position.y:0;
@@ -2691,9 +2782,13 @@ function updateEnvironment(dt){
 
   // ---- night lighting ----
   const night=Math.max(0,Math.min(1,(0.34-s.day)/0.30))+wet*0.3;
+  // wet surfaces: roughness drops and the sky reflection comes up
+  M_ROAD.roughness=0.96-wet*0.52;M_ROAD.envMapIntensity=0.35+wet*1.25;
+  M_ROAD.color.copy(sRGB(0x8b8e91)).multiplyScalar(1-wet*0.32);
+  M_BARR.roughness=0.90-wet*0.34;
   M_LAMP.emissiveIntensity=night*2.4;
   for(const m of LIT_WINDOWS)m.emissiveIntensity=night*1.5;
-  M_LAMPGLOW.opacity=Math.min(0.8,night*0.6);
+  M_LAMPGLOW.opacity=Math.min(0.85,night*0.72);
 
   // ---- water ----
   if(waterMesh){
@@ -2780,8 +2875,9 @@ function updateCar(dt){
     }
   }
 
-  car.s=Math.max(0,Math.min(PATH_LEN-1,car.s));
+  car.s=Math.max(0,Math.min(PATH_LEN+RUNOUT-1,car.s));
   if(car.s>=PATH_LEN-6 && !finished){finished=true;flash('Kent Island','CROSSING COMPLETE');}
+  if(car.s>=PATH_LEN+RUNOUT-8 && !stopped){stopped=true;flash('Stevensville','MD 8 · ROMANCOKE ROAD');}
 
   // place player + wheel spin + front-wheel steer
   placeVehicle(player,car.s,car.x,car.head);
@@ -2792,7 +2888,7 @@ function updateCar(dt){
   player.tail.forEach(m=>m.emissiveIntensity=braking?2.4:1.0);
   const night=Math.max(0,Math.min(1,1-skyState(timeOfDay).day*2.2))+rain*0.35;
   player.head.forEach(m=>m.emissiveIntensity=0.5+night*2.4);
-  if(player.beam)player.beam.intensity=night*2.8;
+  if(player.beam)player.beam.intensity=night*4.2;
   M_HEADGLOW.opacity=Math.min(0.85,night*0.7);
 }
 
@@ -2861,7 +2957,7 @@ function updateHUD(dt){
   const z=player.group.position.z;const seg=segmentName(z);elSeg.textContent=seg[0];elSub.textContent=seg[1];
   const miles=car.s*MILES_PER_M, total=PATH_LEN*MILES_PER_M;
   elBar.style.width=Math.max(0,Math.min(100,(car.s/PATH_LEN)*100))+'%';
-  elPct.textContent=miles.toFixed(1)+' mi';
+  elPct.textContent=Math.min(miles,total).toFixed(1)+' mi';
   const mph=Math.abs(car.speed)*2.237;elMph.textContent=Math.round(mph);
   if(elGear)elGear.textContent='GEAR '+car.gear;
   const hh=Math.floor((timeOfDay*24)%24),mm=Math.floor((timeOfDay*24*60)%60);
@@ -2869,7 +2965,7 @@ function updateHUD(dt){
   const st=skyState(timeOfDay);
   const pm=(timeOfDay%1)>0.5;
   elSky.textContent=rain>0.5?'Rain':(st.day<0.12?'Night':(st.horizon>0.35?(pm?'Sunset':'Sunrise'):(st.day<0.45?(pm?'Dusk':'Dawn'):'Clear')));
-  const remain=PATH_LEN-car.s;const eta=(car.speed>1)?remain/car.speed:NaN;
+  const remain=Math.max(0,PATH_LEN-car.s);const eta=(car.speed>1)?remain/car.speed:NaN;
   elEta.textContent=finished?'Arrived':(isFinite(eta)?Math.floor(eta/60)+':'+String(Math.floor(eta%60)).padStart(2,'0'):'—');
   if(bannerTimer>0){bannerTimer-=dt;if(bannerTimer<=0)document.getElementById('banner').classList.remove('show');}
 }
@@ -2878,7 +2974,7 @@ function updateHUD(dt){
 function animate(){
   requestAnimationFrame(animate);
   let dt=clock.getDelta();dt=Math.min(dt,0.05);
-  if(car.started&&!finished)updateCar(dt);
+  if(car.started&&!stopped)updateCar(dt);
   else placeVehicle(player,car.s,car.x,car.head);
   updateCamera(dt);updateTraffic(dt);updateEnvironment(dt);updateRain(dt);updateHUD(dt);
   updateScatterCulling();
