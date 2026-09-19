@@ -342,6 +342,24 @@ function blobTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
 function glowTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
   const g=x.createRadialGradient(s/2,s/2,2,s/2,s/2,s/2);g.addColorStop(0,'rgba(255,240,200,0.95)');g.addColorStop(0.35,'rgba(255,226,160,0.5)');g.addColorStop(1,'rgba(255,220,150,0)');
   x.fillStyle=g;x.fillRect(0,0,s,s);return texL(c,1,1);}
+/* Lamp pool. Painted in UV space rather than as a radial sprite: u runs across the
+   carriageway and v along it, and both fade hard at the margins. A round sprite scaled to
+   cover the road necessarily overhangs the parapet and gets clipped against open sky,
+   which is what the old circle was doing. */
+function lampPoolTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');
+  const img=x.createImageData(s,s),d=img.data;
+  for(let j=0;j<s;j++)for(let i=0;i<s;i++){
+    const u=i/(s-1), v=j/(s-1);
+    const du=(u-0.20)/0.78, dv=(v-0.5)/0.5;
+    let a=Math.max(0,1-Math.sqrt(du*du+dv*dv*0.92)); a*=a;
+    a*=Math.min(1,u/0.07)*Math.min(1,(1-u)/0.07);      // kerb-to-kerb cutoff
+    a*=Math.min(1,v/0.10)*Math.min(1,(1-v)/0.10);
+    const k=(j*s+i)*4;
+    d[k]=255;d[k+1]=228;d[k+2]=172;d[k+3]=Math.round(Math.max(0,Math.min(1,a))*255);
+  }
+  x.putImageData(img,0,0);
+  const t=new T.CanvasTexture(c);
+  t.wrapS=t.wrapT=T.ClampToEdgeWrapping;t.anisotropy=4;TEX_ALL.push(t);return t;}
 // wet base + foam ring: softens where a pier meets the water
 function foamTexture(){const s=128,c=cvs(s,s),x=c.getContext('2d');const cx=s/2,r=s/2;
   const g=x.createRadialGradient(cx,cx,r*0.24,cx,cx,r);
@@ -445,6 +463,7 @@ const T_MOON=moonTexture();
 const T_ROAD=roadTexture(),T_BARR=concreteTexture('#d0d4d6'),T_PIER=concreteTexture('#c4c8cb'),
       T_STEEL=steelTexture(),T_SAND=sandTexture(),T_GRASS=grassTexture(),T_WISP=wispTexture(),T_REED=reedTexture();
 const B_ROAD=roadBump(),B_CONC=concreteBump(),B_STEEL=steelBump(),T_BLOB=blobTexture(),T_FOAM=foamTexture(),T_GLOW=glowTexture();
+const T_LAMPPOOL=lampPoolTexture();
 
 /* =============================== PATH =============================== */
 function buildPath(){
@@ -630,7 +649,7 @@ const M_SOFFIT=new T.MeshStandardMaterial({color:0x3f454a,roughness:.9,metalness
 const M_BLOB=new T.MeshBasicMaterial({map:T_BLOB,transparent:true,depthWrite:false});
 const M_FOAM=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,depthWrite:false,fog:true});
 const M_LAMP=new T.MeshStandardMaterial({color:0x3a3d40,emissive:0xffd98a,emissiveIntensity:0,roughness:.5});
-const M_LAMPGLOW=new T.MeshBasicMaterial({map:T_GLOW,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
+const M_LAMPGLOW=new T.MeshBasicMaterial({map:T_LAMPPOOL,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
 const M_HEADGLOW=new T.MeshBasicMaterial({map:T_GLOW,color:0x4a3c22,transparent:true,opacity:0,depthWrite:false,blending:T.AdditiveBlending,fog:true});
 const FOAM_GEO=new T.CircleGeometry(1,20);
 const GLOW_GEO=new T.CircleGeometry(1,16);
@@ -714,6 +733,23 @@ function suspensionCables(t1,t2,i1,i2,ox,group){ox=ox||0;
   }
 }
 // characteristic tall light standards along the median (left) barrier
+/* Build the pool as a short ribbon of the carriageway itself, so it follows the deck's
+   curve and grade exactly and ends at the kerbs. pts carry a centreline and right vector. */
+function lightPoolRibbon(pts,group,flip){
+  const half=ROAD_HALF-0.2,pos=[],uv=[],idx=[];let vc=0;
+  for(let k=0;k<pts.length;k++){
+    const p=pts[k],v=k/(pts.length-1);
+    pos.push(p.x-p.rx*half,p.y,p.z-p.rz*half, p.x+p.rx*half,p.y,p.z+p.rz*half);
+    if(flip)uv.push(1,v, 0,v); else uv.push(0,v, 1,v);
+    if(k<pts.length-1){const a=vc,b=vc+1,c=vc+2,d=vc+3;idx.push(a,c,b,b,c,d);}
+    vc+=2;
+  }
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  const m=new T.Mesh(g,M_LAMPGLOW);m.renderOrder=1;group.add(m);return m;
+}
 function addLightPoles(ox,group){
   const poleMat=new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4});
   for(let i=8;i<N-4;i+=11){const P=PATH_POS[i],R=PATH_RIGHT[i];
@@ -726,8 +762,12 @@ function addLightPoles(ox,group){
     const lx=bx-R.x*s*1.9, lz=bz-R.z*s*1.9;
     const lamp=box(0.5,0.2,0.9,M_LAMP);lamp.position.set(lx,P.y+8.8,lz);group.add(lamp);
     // warm pool of light thrown on the road (fades in at night)
-    const pool=new T.Mesh(GLOW_GEO,M_LAMPGLOW);pool.rotation.x=-Math.PI/2;
-    pool.position.set(P.x+R.x*ox,P.y+0.09,P.z+R.z*ox);pool.scale.set(8.5,13,1);group.add(pool);
+    const pts=[];
+    for(let k=-4;k<=4;k++){
+      const j=Math.max(0,Math.min(N,i+k)),Q=PATH_POS[j],QR=PATH_RIGHT[j];
+      pts.push({x:Q.x+QR.x*ox,y:Q.y+0.09,z:Q.z+QR.z*ox,rx:QR.x,rz:QR.z});
+    }
+    lightPoolRibbon(pts,group,false);
   }
 }
 // flush expansion-joint lines across the deck (detail, sits on the road surface)
@@ -1241,23 +1281,38 @@ function fillLot(cx,cz,w,d,rot,rows,perRow,R,skip){
 }
 
 /* =============================== INSTANCED PROPS =============================== */
-const M_PROP=new T.MeshStandardMaterial({vertexColors:true,roughness:.48,metalness:.22});
+const M_PROP=new T.MeshStandardMaterial({vertexColors:true,roughness:.32,metalness:.12,envMapIntensity:1.35});
 const M_PROP_R=new T.MeshStandardMaterial({vertexColors:true,roughness:.85,metalness:.04});
 const CAR_COLS=[0xd8d8d6,0x2e3136,0x8d9195,0x9c1f22,0x1f3d6b,0x3d5c42,0xc6c2b4,0x6b2f28,0xe4e0d6,0x44484d]
   .map(h=>new T.Color(h).convertSRGBToLinear());
 let G_CAR=[],G_SAIL=[],G_MOTOR=[],G_SKIFF=null,G_STAND=null,G_CLEAT=null,G_GULLPOST=null;
 
+/* A rounded-rectangle extrusion with a bevel: still one merged geometry per variant, but
+   the shells catch a highlight along their edges instead of reading as hard boxes. */
+function roundedBoxGeo(w,h,d,r){
+  r=Math.min(r,Math.min(w,h)*0.48);
+  const sh=new T.Shape();
+  sh.moveTo(-w/2+r,-h/2);
+  sh.lineTo(w/2-r,-h/2);sh.quadraticCurveTo(w/2,-h/2,w/2,-h/2+r);
+  sh.lineTo(w/2,h/2-r);sh.quadraticCurveTo(w/2,h/2,w/2-r,h/2);
+  sh.lineTo(-w/2+r,h/2);sh.quadraticCurveTo(-w/2,h/2,-w/2,h/2-r);
+  sh.lineTo(-w/2,-h/2+r);sh.quadraticCurveTo(-w/2,-h/2,-w/2+r,-h/2);
+  const b=Math.min(r*0.8,d*0.30);
+  const g=new T.ExtrudeGeometry(sh,{depth:Math.max(0.02,d-2*b),bevelEnabled:true,
+    bevelThickness:b,bevelSize:b,bevelSegments:2,steps:1,curveSegments:5});
+  g.translate(0,0,-(d-2*b)/2);g.computeVertexNormals();return g;
+}
 /* Stubby, readable car silhouettes — these are only ever seen parked and at distance. */
 function carGeo(seed,type){
   const R=mulberry(seed),parts=[];
   const L=type==='truck'?5.4:(type==='van'?4.9:4.4), W=type==='truck'?2.0:1.82;
   const body=sRGB(0xffffff), glass=sRGB(0x2b343a), tyre=sRGB(0x16191c);
-  parts.push(part(new T.BoxGeometry(W,0.78,L),0,0.66,0,1,1,1,0,body,f=>0.72+0.4*f));
+  parts.push(part(roundedBoxGeo(W,0.78,L,0.26),0,0.66,0,1,1,1,0,body,f=>0.72+0.4*f));
   const ch=type==='truck'?0.80:(type==='van'?0.95:0.66);
   const cl=type==='truck'?L*0.42:(type==='van'?L*0.62:L*0.52);
-  parts.push(part(new T.BoxGeometry(W*0.9,ch,cl),0,1.05+ch/2,type==='truck'?L*0.10:-L*0.02,1,1,1,0,glass,f=>0.6+0.7*f));
-  if(type==='truck')parts.push(part(new T.BoxGeometry(W*0.96,0.42,L*0.42),0,1.26,-L*0.28,1,1,1,0,body,f=>0.7+0.4*f));
-  const wheel=new T.CylinderGeometry(0.34,0.34,0.24,8);
+  parts.push(part(roundedBoxGeo(W*0.9,ch,cl,0.22),0,1.05+ch/2,type==='truck'?L*0.10:-L*0.02,1,1,1,0,glass,f=>0.6+0.7*f));
+  if(type==='truck')parts.push(part(roundedBoxGeo(W*0.96,0.42,L*0.42,0.12),0,1.26,-L*0.28,1,1,1,0,body,f=>0.7+0.4*f));
+  const wheel=new T.CylinderGeometry(0.34,0.34,0.24,12);
   for(const sx of[-1,1])for(const pz of[L*0.31,-L*0.31]){
     const p=part(wheel,sx*(W*0.5-0.05),0.34,pz,1,1,1,0,tyre,f=>0.7+0.3*f);
     p.m.multiply(new T.Matrix4().makeRotationZ(Math.PI/2));parts.push(p);
@@ -1269,15 +1324,11 @@ function carGeo(seed,type){
 function hullParts(L,B,hullHex,deckHex,stripeHex){
   const hull=sRGB(hullHex),deck=sRGB(deckHex),trim=sRGB(stripeHex);
   const hs=f=>0.55+0.62*f, parts=[];
-  parts.push(part(new T.BoxGeometry(B,1.05,L*0.56),0,0.55,0,1,1,1,0,hull,hs));
-  parts.push(part(new T.BoxGeometry(B*0.86,1.05,L*0.23),0,0.55,-L*0.39,1,1,1,0,hull,hs));
-  parts.push(part(new T.BoxGeometry(B*0.66,1.05,L*0.23),0,0.55,L*0.39,1,1,1,0,hull,hs));
-  const prow=part(new T.CylinderGeometry(0.02,B*0.33,1.7,3),0,0.55,L*0.5+0.4,1,1,1,0,hull,hs);
-  prow.m.multiply(new T.Matrix4().makeRotationX(Math.PI/2)).multiply(new T.Matrix4().makeRotationY(Math.PI/6));
-  parts.push(prow);
-  parts.push(part(new T.BoxGeometry(B*0.94,0.09,L*0.97),0,1.11,0,1,1,1,0,deck,()=>1.0));
-  parts.push(part(new T.BoxGeometry(B+0.07,0.15,L+0.05),0,1.02,0,1,1,1,0,trim,()=>0.85));
-  parts.push(part(new T.BoxGeometry(B+0.03,0.16,L*0.97),0,0.78,0,1,1,1,0,trim,()=>0.7));
+  // 12 sections is plenty at the distance a moored boat is ever seen, and it still merges
+  // into the same single instanced draw call as before
+  parts.push(part(hullGeometry(L,B,1.8,{steps:12,sternW:0.84,bowSharp:2.2,sheer:0.26,bilge:0.70}),0,1.38,0,1,1,1,0,hull,hs));
+  parts.push(part(new T.BoxGeometry(B*0.90,0.09,L*0.92),0,1.11,0,1,1,1,0,deck,()=>1.0));
+  parts.push(part(hullGeometry(L*1.01,B*1.035,0.18,{steps:12,sternW:0.86,bowSharp:2.2,sheer:0.03,bilge:0.96}),0,1.22,0,1,1,1,0,trim,()=>0.85));
   return parts;
 }
 function sailGeo(seed,L){
@@ -1674,8 +1725,15 @@ function buildKentIsland(group){
     const arm=box(0.14,0.14,3.6,new T.MeshStandardMaterial({color:0x8b9297,roughness:.6,metalness:.4}));
     arm.position.set((p.x+a2.x)/2,roadY+9.2,(p.z+a2.z)/2);group.add(arm);
     const lamp=box(0.5,0.22,0.95,M_LAMP);lamp.position.set(a2.x,roadY+9.0,a2.z);group.add(lamp);
-    const gl=new T.Mesh(GLOW_GEO,M_LAMPGLOW);gl.rotation.x=-Math.PI/2;
-    gl.position.set(a2.x,roadY+0.07,a2.z);gl.scale.setScalar(9);group.add(gl);
+    // a pool on each carriageway, brightest on the median side of each
+    for(const [oc,fl] of [[0,false],[OFF,true]]){
+      const pts=[];
+      for(let k=-4;k<=4;k++){
+        const q=at(oc,d+k*9);
+        pts.push({x:q.x,y:roadY+0.07,z:q.z,rx:eR.x,rz:eR.z});
+      }
+      lightPoolRibbon(pts,group,fl);
+    }
   }
   // overhead guide signs: MD 8 then MD 18 / Stevensville
   function bgs(d,off,w,h,txt){
@@ -2018,14 +2076,169 @@ function buildShores(group){
   }
 }
 
-function buildCargoShip(){const g=new T.Group();
-  const hull=box(16,7,64,new T.MeshStandardMaterial({color:0x2b3a44,roughness:.8}));hull.position.y=1.4;g.add(hull);
-  const deck=box(16.4,1.2,64,new T.MeshStandardMaterial({color:0x8a5a3a,roughness:.85}));deck.position.y=4.8;g.add(deck);
-  const cc=[0xb14b3c,0x3c6cb1,0xb8a13c,0x3ca06b,0x555b60];
-  for(let r=0;r<3;r++)for(let c=-1;c<=1;c++)for(let z=-4;z<=4;z++){
-    const ct=box(4.6,2.6,7.6,new T.MeshStandardMaterial({color:cc[(r+c+z+9)%cc.length],roughness:.8}));ct.position.set(c*5,6.6+r*2.7,z*7.8);g.add(ct);}
-  const hs=box(13,9,10,new T.MeshStandardMaterial({color:0xdfe2e4,roughness:.7}));hs.position.set(0,10,26);g.add(hs);
-  g.position.set(-260,0,2450);g.rotation.y=0.6;g.traverse(o=>{if(o.isMesh)o.castShadow=true;});return g;}
+/* ------------------------------- HULLS -------------------------------
+   Every vessel in the bay was a stack of boxes. This lofts a real hull instead: a ring of
+   section points (keel, turn of bilge, topside, deck edge, deck centreline) swept along the
+   length, with the half-beam tapering to a stem at the bow and the sheer lifting at both
+   ends. One generator serves the container ship, the small craft and the moored fleet. */
+function hullGeometry(L,B,D,o){
+  o=o||{};
+  const steps=o.steps||26;
+  const sternW=o.sternW===undefined?0.86:o.sternW;
+  const bowSharp=o.bowSharp===undefined?2.4:o.bowSharp;
+  const sheerAmt=o.sheer===undefined?0.10:o.sheer;
+  // bilge: how far below the deck the hull turns full-beam, as a fraction of D. Small craft
+  // round in high (~0.7); a box boat carries her beam nearly to the keel (~0.92).
+  const bl=o.bilge===undefined?0.72:o.bilge;
+  const yK=-D, yLo=-D*(bl+(1-bl)*0.60), yBil=-D*bl, yTop=-D*bl*0.42;
+  const pos=[],nor=[],uv=[],idx=[];
+  const RING=10;
+  const sect=(hb,sh)=>[
+    [0,yK],[hb*0.50,yLo],[hb*0.94,yBil],[hb,yTop],[hb*0.98,sh],
+    [0,sh],[-hb*0.98,sh],[-hb,yTop],[-hb*0.94,yBil],[-hb*0.50,yLo]];
+  for(let s=0;s<=steps;s++){
+    const t=s/steps;                                   // 0 stern -> 1 bow
+    // parallel midbody with a rounded stern and a fine entry forward
+    let f;
+    if(t<0.14) f=sternW+(1-sternW)*(t/0.14);
+    else if(t<0.62) f=1;
+    else f=Math.pow(1-(t-0.62)/0.38,bowSharp*0.42)*0.99+0.01;
+    const hb=Math.max(0.012*B,B*0.5*f);
+    // sheer: deck lifts toward bow and, less so, aft
+    const sh=D*sheerAmt*(Math.pow(Math.abs(t-0.45)*2.0,2.0))+D*0.02;
+    const ring=sect(hb,sh);
+    const z=-L/2+t*L;
+    for(let k=0;k<RING;k++){
+      pos.push(ring[k][0],ring[k][1],z);
+      nor.push(0,0,0);
+      uv.push(k/RING,t);
+    }
+    if(s<steps){
+      const a=s*RING,b=(s+1)*RING;
+      for(let k=0;k<RING;k++){
+        const k2=(k+1)%RING;
+        idx.push(a+k,b+k,a+k2, a+k2,b+k,b+k2);
+      }
+    }
+  }
+  // transom: fan the stern ring to its own centre
+  const cIdx=pos.length/3;
+  pos.push(0,-D*0.2,-L/2);nor.push(0,0,0);uv.push(0.5,0);
+  for(let k=0;k<RING;k++)idx.push(cIdx,(k+1)%RING,k);
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('normal',new T.Float32BufferAttribute(nor,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);g.computeVertexNormals();return g;
+}
+/* Tapering foam trail. Alpha is baked into the geometry's UVs against the foam texture. */
+function wakeMesh(len,wid,op){
+  const pos=[],uv=[],idx=[];let vc=0,steps=14;
+  for(let k=0;k<=steps;k++){
+    const t=k/steps;
+    const w=wid*(0.25+t*1.35);
+    pos.push(-w,0,-t*len, w,0,-t*len);
+    uv.push(0,t*0.5+0.25, 1,t*0.5+0.25);
+    if(k<steps){const a=vc,b=vc+1,c=vc+2,d=vc+3;idx.push(a,c,b,b,c,d);}
+    vc+=2;
+  }
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  const m=new T.Mesh(g,new T.MeshBasicMaterial({map:T_FOAM,transparent:true,opacity:op||0.4,
+    depthWrite:false,fog:true,side:T.DoubleSide}));
+  m.renderOrder=1;return m;
+}
+
+/* -------------------- CONTAINER SHIP --------------------
+   Baltimore-bound box boat standing up the shipping channel. Sized so she still reads at
+   the mile or so she sits off the span. */
+function buildCargoShip(){
+  const g=new T.Group();
+  const L=178,B=27,D=13;
+  const hullM =new T.MeshStandardMaterial({color:0x1d2b38,roughness:.62,metalness:.22,envMapIntensity:1.1});
+  const bootM =new T.MeshStandardMaterial({color:0x8d3128,roughness:.7,metalness:.1});
+  const deckM =new T.MeshStandardMaterial({color:0x5c5a52,roughness:.9});
+  const whiteM=new T.MeshStandardMaterial({color:0xe9ebec,roughness:.6});
+  const darkM =new T.MeshStandardMaterial({color:0x2a3036,roughness:.6,metalness:.3});
+  const metalM=new T.MeshStandardMaterial({color:0x9aa2a8,roughness:.45,metalness:.7});
+  const glassM=new T.MeshStandardMaterial({color:0x17252e,roughness:.1,metalness:.6,envMapIntensity:1.6});
+
+  // FB is the height of the main deck above the waterline. Laden box boats run high.
+  const FB=10.5;
+  const hull=new T.Mesh(hullGeometry(L,B,D,{steps:34,bowSharp:2.8,sheer:0.12,bilge:0.92}),hullM);
+  hull.position.y=FB;hull.castShadow=true;hull.receiveShadow=true;g.add(hull);
+  // boot top: the same plan shape lofted only a metre deep, sat on the waterline
+  const boot=new T.Mesh(hullGeometry(L,B*1.014,1.15,{steps:34,bowSharp:2.8,sheer:0.02,bilge:0.96}),bootM);
+  boot.position.y=1.05;g.add(boot);
+  // weather deck between the hatch coamings
+  const deck=box(B*0.94,0.5,L*0.93,deckM);deck.position.y=FB+0.3;deck.receiveShadow=true;g.add(deck);
+
+  /* containers: five bays of stacks, varied heights and a gap or two, reefer whites
+     clustered near the house the way they really are */
+  const boxCols=[0xa7402f,0x2f5f96,0x9a8b33,0x2f7a54,0x6e7378,0xb06a26,0xd8d5cc,0x7a3a5c];
+  const R=mulberry(6060);
+  const CW=2.45,CH=2.6,CL=12.2;
+  for(let bay=0;bay<10;bay++){
+    const bz=-L*0.30+bay*(CL+1.3);
+    if(R()<0.10)continue;                          // an empty bay
+    for(let col=-4;col<=4;col++){
+      const high=Math.round(3+R()*3)-(Math.abs(col)>3?2:0);
+      if(high<1)continue;
+      for(let tier=0;tier<high;tier++){
+        const c=boxCols[Math.floor(R()*boxCols.length)];
+        const ct=box(CW,CH,CL,stdMat(c,.82,.06));
+        ct.position.set(col*(CW+0.12),FB+1.0+CH*0.5+tier*CH,bz);
+        ct.castShadow=true;ct.receiveShadow=true;g.add(ct);
+        // corrugated top rail catches the light and breaks the flat face
+        const cap=box(CW*1.02,0.14,CL*1.01,darkM);
+        cap.position.set(col*(CW+0.12),FB+1.0+CH+tier*CH,bz);g.add(cap);
+      }
+    }
+  }
+  // hatch coamings either side of the stacks
+  for(const sx of[-1,1]){
+    const co=box(0.6,1.3,L*0.74,darkM);co.position.set(sx*B*0.44,FB+1.1,-L*0.05);g.add(co);
+  }
+
+  /* accommodation block aft, then the funnel above it */
+  const hz=-L*0.34;
+  for(let t=0;t<5;t++){
+    const w=B*0.80-t*1.1, d=15-t*1.1;
+    const tier=box(w,3.1,d,whiteM);tier.position.set(0,FB+2.0+t*3.1+1.55,hz);
+    tier.castShadow=true;g.add(tier);
+    const band=box(w*1.005,1.15,d*1.005,glassM);band.position.set(0,FB+2.0+t*3.1+2.1,hz);g.add(band);
+  }
+  // bridge deck with wings out to the ship's side
+  const brg=box(B*0.99,2.9,9,whiteM);brg.position.set(0,FB+2.0+5*3.1+1.45,hz);brg.castShadow=true;g.add(brg);
+  const brgW=box(B*1.0,1.25,9.1,glassM);brgW.position.set(0,FB+2.0+5*3.1+2.0,hz);g.add(brgW);
+  const funnel=box(6.6,9,7.6,darkM);funnel.position.set(0,FB+2.0+6*3.1+4.4,hz-8.5);funnel.castShadow=true;g.add(funnel);
+  const fband=box(6.8,2.6,7.8,stdMat(0xb4331f,.7,0));
+  fband.position.set(0,FB+2.0+6*3.1+6.2,hz-8.5);g.add(fband);
+  // mast forward and a radar post on the house
+  const mast=new T.Mesh(new T.CylinderGeometry(0.22,0.34,14,8),metalM);
+  mast.position.set(0,FB+7,L*0.40);mast.castShadow=true;g.add(mast);
+  const radar=new T.Mesh(new T.CylinderGeometry(0.2,0.24,6,8),metalM);
+  radar.position.set(0,FB+2.0+6*3.1+3,hz);g.add(radar);
+  for(const y of[FB+2.0+6*3.1+5.6,FB+2.0+6*3.1+4.2]){
+    const sc=box(3.4,0.18,0.5,metalM);sc.position.set(0,y,hz);g.add(sc);
+  }
+  // bulwark rail along the forecastle
+  const fc=box(B*0.9,1.5,L*0.10,hullM);fc.position.set(0,FB+1.0,L*0.42);g.add(fc);
+
+  // Wash: the bow wave leaves the stem as a pair of arms diverging aft at about 19 deg,
+  // with the propeller wake trailing straight astern behind them.
+  for(const sx of[-1,1]){
+    const arm=wakeMesh(130,4.5,0.42);
+    arm.position.set(sx*B*0.16,0.10,L*0.46);arm.rotation.y=sx*0.33;g.add(arm);
+  }
+  const aft=wakeMesh(210,9,0.34);aft.position.set(0,0.10,-L*0.47);g.add(aft);
+
+  g.traverse(o=>{if(o.isMesh&&!o.material.transparent)o.castShadow=true;});
+  g.position.set(-300,0,2500);g.rotation.y=0.32;
+  return g;
+}
 
 /* ---- small craft: sailboats, motorboats, a workboat ---- */
 const M_WAKE=new T.MeshBasicMaterial({map:T_FOAM,transparent:true,opacity:0.5,depthWrite:false,fog:true});
@@ -2038,20 +2251,18 @@ function makeBoat(type){
   let len,beam;
   if(type==='sail'){len=10;beam=2.8;}else if(type==='motor'){len=8.5;beam=2.7;}else{len=14;beam=4.5;}
   const hullY=0.55, hullH=1.15;
-  // Tapered hull: mid section (widest), stern (rear, slightly narrower), bow (narrowest)
-  const mid=box(beam, hullH, len*0.55, hullMat); mid.position.y=hullY; g.add(mid);
-  const stern=box(beam*0.88, hullH, len*0.22, hullMat); stern.position.set(0, hullY, -len*0.385); g.add(stern);
-  const bowBox=box(beam*0.7, hullH, len*0.22, hullMat); bowBox.position.set(0, hullY, len*0.385); g.add(bowBox);
-  // Pointed bow prow (triangular using CylinderGeometry with 3 radial segments)
-  const prow=new T.Mesh(new T.CylinderGeometry(0.02, beam*0.35, 1.8, 3), hullMat);
-  prow.rotation.x=Math.PI/2; prow.rotation.z=Math.PI/6;
-  prow.position.set(0, hullY, len/2+0.45); g.add(prow);
+  // Lofted hull rather than three stacked boxes: proper sheer, a fine entry and a transom.
+  const hull=new T.Mesh(hullGeometry(len,beam,1.9,
+    {steps:18,sternW:type==='work'?0.92:0.82,bowSharp:type==='sail'?3.0:2.2,sheer:0.26,bilge:0.70}),hullMat);
+  hull.position.y=1.45;hull.castShadow=true;g.add(hull);
   // Deck (top surface, slightly inset)
-  const deck=box(beam*0.94, 0.08, len*0.98, decMat); deck.position.y=hullH+0.04; g.add(deck);
+  const deck=box(beam*0.90, 0.08, len*0.92, decMat); deck.position.y=hullH+0.06; g.add(deck);
   // Gunwale (top rail around deck edge)
-  const gun=box(beam+0.08, 0.16, len+0.06, gunMat); gun.position.y=hullH-0.05; g.add(gun);
-  // Waterline stripe (dark trim below deck)
-  const stripe=box(beam+0.04, 0.14, len*0.98, trimMat); stripe.position.y=hullH-0.22; g.add(stripe);
+  const gun=new T.Mesh(hullGeometry(len*1.01,beam*1.035,0.20,{steps:18,sternW:0.86,bowSharp:2.2,sheer:0.03,bilge:0.96}),gunMat);
+  gun.position.y=1.30;g.add(gun);
+  // Waterline stripe
+  const stripe=new T.Mesh(hullGeometry(len*1.005,beam*1.018,0.17,{steps:18,sternW:0.86,bowSharp:2.2,sheer:0.03,bilge:0.96}),trimMat);
+  stripe.position.y=1.03;g.add(stripe);
 
   if(type==='sail'){
     // Mast + boom
@@ -2160,9 +2371,10 @@ function makeBoat(type){
     stack.position.set(beam*0.25, hullH+3.0, -len*0.18); g.add(stack);
   }
   g.traverse(o=>{if(o.isMesh)o.castShadow=true;});
-  const wake=new T.Mesh(new T.PlaneGeometry(beam*2.4, len*2.5), M_WAKE);
-  wake.rotation.x=-Math.PI/2;
-  wake.position.set(0, 0.12, -len*0.9);
+  // a boat under sail barely leaves a mark; a workboat pushes a real trail
+  const wk=type==='sail'?0.55:(type==='work'?1.5:1.0);
+  const wake=wakeMesh(len*3.2*wk, beam*0.55*wk, 0.4);
+  wake.position.set(0, 0.11, -len*0.48);
   g.add(wake);
   return {group:g, len, wake};
 }
@@ -2230,7 +2442,7 @@ function updateAmbience(dt,s,wet){
     b.group.rotation.y=b.heading;
     b.group.rotation.z=Math.sin(_ambT*0.8+b.bob)*0.04;   // gentle roll
     b.group.position.y=Math.sin(_ambT*0.9+b.bob)*0.12;    // bob
-    if(b.wake)b.wake.material.opacity=0.42;
+    if(b.wake)b.wake.material.opacity=0.30+Math.min(0.22,b.speed*0.07);
   }
   // gulls wheel around the player: slow flap with occasional glides, bank into turns
   for(const gl of gulls){
@@ -2266,22 +2478,70 @@ function buildTwinSpan(group){const OFF=-44;const twin=new T.Group();  // compan
 /* =============================== VEHICLES =============================== */
 // Origin of the group = REAR AXLE. Model extends forward along +Z.
 // Body is an extruded, beveled side-silhouette (rounded, sloped) — not stacked boxes.
+/* Corner-cut the silhouette before extruding. Drawing the profile through edge midpoints
+   with each original vertex as a quadratic control point rounds every corner by an amount
+   proportional to the edges meeting there — so tight junctions (A-pillar base, boot lip)
+   soften while long flat panels stay flat. Straight lineTo segments were what made the
+   bodies read as folded card. */
 function extrudeProfile(pts,width,bevel,mat){
-  const sh=new T.Shape();sh.moveTo(pts[0][0],pts[0][1]);
-  for(let i=1;i<pts.length;i++)sh.lineTo(pts[i][0],pts[i][1]);
+  const sh=new T.Shape(),n=pts.length;
+  const mid=(a,b)=>[(a[0]+b[0])*0.5,(a[1]+b[1])*0.5];
+  sh.moveTo(pts[0][0],pts[0][1]);
+  const m0=mid(pts[0],pts[1]);sh.lineTo(m0[0],m0[1]);
+  for(let i=1;i<n-1;i++){const m=mid(pts[i],pts[i+1]);
+    sh.quadraticCurveTo(pts[i][0],pts[i][1],m[0],m[1]);}
+  const mn=mid(pts[n-1],pts[0]);
+  sh.quadraticCurveTo(pts[n-1][0],pts[n-1][1],mn[0],mn[1]);
   const geo=new T.ExtrudeGeometry(sh,{depth:Math.max(0.02,width-2*bevel),bevelEnabled:bevel>0,
-    bevelThickness:bevel,bevelSize:bevel,bevelSegments:2,steps:1,curveSegments:4});
+    bevelThickness:bevel,bevelSize:bevel,bevelSegments:4,steps:1,curveSegments:10});
   geo.rotateY(-Math.PI/2);geo.computeBoundingBox();const bb=geo.boundingBox;
   geo.translate(-(bb.min.x+bb.max.x)/2,0,0);
   const m=new T.Mesh(geo,mat);m.castShadow=true;return m;
 }
+/* Merge a container's direct Mesh children by material, baking their local transforms.
+   Used on vehicles, where the body never moves relative to its group and each wheel's
+   parts never move relative to their roll pivot. */
+function mergeChildren(container){
+  const bins=new Map();
+  for(const o of container.children){
+    if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)continue;
+    const k=o.material.uuid;
+    if(!bins.has(k))bins.set(k,[]);
+    bins.get(k).push(o);
+  }
+  bins.forEach(list=>{
+    if(list.length<2)return;
+    const P=[],NN=[],UU=[];
+    for(const o of list){
+      o.updateMatrix();
+      const g=o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone();
+      g.applyMatrix4(o.matrix);
+      const pos=g.attributes.position,nor=g.attributes.normal,uv=g.attributes.uv;
+      for(let i=0;i<pos.count;i++){
+        P.push(pos.getX(i),pos.getY(i),pos.getZ(i));
+        if(nor)NN.push(nor.getX(i),nor.getY(i),nor.getZ(i));else NN.push(0,1,0);
+        if(uv)UU.push(uv.getX(i),uv.getY(i));else UU.push(0,0);
+      }
+      g.dispose();
+    }
+    const out=new T.BufferGeometry();
+    out.setAttribute('position',new T.Float32BufferAttribute(P,3));
+    out.setAttribute('normal',new T.Float32BufferAttribute(NN,3));
+    out.setAttribute('uv',new T.Float32BufferAttribute(UU,2));
+    out.computeBoundingSphere();
+    const m=new T.Mesh(out,list[0].material);
+    m.castShadow=list[0].castShadow;m.receiveShadow=list[0].receiveShadow;
+    container.add(m);
+    for(const o of list){container.remove(o);o.geometry.dispose();}
+  });
+}
 function makeVehicle(type,color){
   const g=new T.Group();
-  const paint=new T.MeshStandardMaterial({color:color,roughness:.34,metalness:.55,side:T.DoubleSide});
+  const paint=new T.MeshStandardMaterial({color:color,roughness:.26,metalness:.10,side:T.DoubleSide,envMapIntensity:1.5});
   const dark =new T.MeshStandardMaterial({color:color,roughness:.5,metalness:.4});dark.color.multiplyScalar(0.8);
-  const glass=new T.MeshStandardMaterial({color:0x0b1418,roughness:.08,metalness:.8,side:T.DoubleSide});
+  const glass=new T.MeshStandardMaterial({color:0x121d24,roughness:.06,metalness:.55,side:T.DoubleSide,envMapIntensity:1.8});
   const trim =new T.MeshStandardMaterial({color:0x1f2326,roughness:.7,metalness:.3});
-  const chrome=new T.MeshStandardMaterial({color:0x9aa2a8,roughness:.3,metalness:.85});
+  const chrome=new T.MeshStandardMaterial({color:0xb4bcc2,roughness:.16,metalness:.95,envMapIntensity:1.6});
   let L,oR,oF,wid,bodyH,cabH,wheelR,cabRF,cabFF,hoodDrop;
   if(type==='sedan'){L=2.7;oR=0.82;oF=0.86;wid=1.82;bodyH=0.62;cabH=0.52;wheelR=0.33;cabRF=0.30;cabFF=0.64;hoodDrop=0.12;}
   else if(type==='suv'){L=2.85;oR=0.9;oF=0.95;wid=1.94;bodyH=0.74;cabH=0.72;wheelR=0.42;cabRF=0.27;cabFF=0.63;hoodDrop=0.05;}
@@ -2295,43 +2555,63 @@ function makeVehicle(type,color){
     // smooth lower body (rounded, sloped hood, trunk) — one beveled extrusion
     const lower=[[x0+0.10,yFloor],[x1-0.12,yFloor],[x1-0.02,yFloor+0.16],[x1,yBelt-hoodDrop-0.05],
       [x1-0.18,yBelt-hoodDrop],[cabF,yBelt],[x0+0.05,yBelt],[x0,yFloor+0.15]];
-    g.add(extrudeProfile(lower,wid,0.11,paint));
+    g.add(extrudeProfile(lower,wid,0.15,paint));
     // tapered glass greenhouse
     const cabin=[[cabR,yBelt-0.01],[cabR+cw*0.16,yRoof],[cabF-cw*0.13,yRoof],[cabF,yBelt-0.01]];
-    g.add(extrudeProfile(cabin,wid*0.9,0.05,glass));
+    g.add(extrudeProfile(cabin,wid*0.9,0.07,glass));
     // painted roof cap
-    const cap=[[cabR+cw*0.15,yRoof-0.04],[cabR+cw*0.22,yRoof+0.02],[cabF-cw*0.17,yRoof+0.02],[cabF-cw*0.12,yRoof-0.04]];
-    g.add(extrudeProfile(cap,wid*0.93,0.04,paint));
+    const cap=[[cabR+cw*0.13,yRoof-0.17],[cabR+cw*0.21,yRoof-0.07],[cabF-cw*0.16,yRoof-0.07],[cabF-cw*0.10,yRoof-0.17]];
+    g.add(extrudeProfile(cap,wid*0.955,0.06,paint));
   }else{
     const yBed=yFloor+bodyH*0.72;
     const lower=[[x0+0.10,yFloor],[x1-0.12,yFloor],[x1-0.02,yFloor+0.16],[x1,yBelt-hoodDrop-0.05],
       [x1-0.18,yBelt-hoodDrop],[cabF,yBelt],[cabR,yBelt],[cabR,yBed],[x0+0.05,yBed],[x0,yFloor+0.15]];
-    g.add(extrudeProfile(lower,wid,0.10,paint));
+    g.add(extrudeProfile(lower,wid,0.14,paint));
     // cab glass
     const cabin=[[cabR,yBelt-0.01],[cabR+cw*0.14,yRoof],[cabF-cw*0.12,yRoof],[cabF,yBelt-0.01]];
-    g.add(extrudeProfile(cabin,wid*0.9,0.05,glass));
-    const cap=[[cabR+cw*0.13,yRoof-0.04],[cabR+cw*0.2,yRoof+0.02],[cabF-cw*0.16,yRoof+0.02],[cabF-cw*0.1,yRoof-0.04]];
-    g.add(extrudeProfile(cap,wid*0.93,0.04,paint));
+    g.add(extrudeProfile(cabin,wid*0.9,0.07,glass));
+    const cap=[[cabR+cw*0.12,yRoof-0.17],[cabR+cw*0.19,yRoof-0.07],[cabF-cw*0.15,yRoof-0.07],[cabF-cw*0.09,yRoof-0.17]];
+    g.add(extrudeProfile(cap,wid*0.955,0.06,paint));
     // open bed walls + tailgate
     const bedZ=(x0+cabR)/2, bedLen=cabR-x0;
     for(const s of[-1,1]){const wall=box(0.12,0.34,bedLen,paint);wall.position.set(s*wid*0.45,yBed+0.17,bedZ);g.add(wall);}
     const tg=box(wid*0.9,0.34,0.12,paint);tg.position.set(0,yBed+0.17,x0+0.1);g.add(tg);
   }
-  // A/B/C pillars (thin, slightly outboard of the glass)
-  for(const s of[-1,1])for(const zz of[cabR+0.04,(cabR+cabF)/2,cabF-0.04]){
-    const pil=box(0.05,yRoof-yBelt+0.05,0.13,paint);pil.position.set(s*wid*0.455,(yBelt+yRoof)/2,zz);g.add(pil);}
+  // A/B/C pillars: thin, dark, and kept below the rounded roofline — the profile corner
+  // cutting pulls the glass top well under yRoof, so a full-height post would stand proud.
+  const pilH=(yRoof-yBelt)*0.80;
+  for(const s of[-1,1])for(const zz of[cabR+0.07,(cabR+cabF)/2,cabF-0.07]){
+    const pil=box(0.025,pilH,0.085,trim);pil.position.set(s*wid*0.443,yBelt+pilH*0.5,zz);g.add(pil);}
+  /* Wheel arches. A half-torus over each wheel breaks the flat slab of the body side and
+     gives the wheels somewhere to sit, which is most of what separated these from a box. */
+  for(const s of[-1,1])for(const pz of[0,L]){
+    const arch=new T.Mesh(new T.TorusGeometry(wheelR*1.16,0.055,6,14,Math.PI),paint);
+    arch.rotation.y=Math.PI/2;
+    arch.position.set(s*(wid/2-0.015),wheelR,pz);
+    arch.castShadow=true;g.add(arch);
+    // a dark liner behind the arch so the gap does not show sky through it
+    const lin=new T.Mesh(new T.TorusGeometry(wheelR*1.10,0.10,5,12,Math.PI),trim);
+    lin.rotation.y=Math.PI/2;lin.position.set(s*(wid/2-0.11),wheelR,pz);g.add(lin);}
   // mirrors
-  for(const s of[-1,1]){const m=box(0.1,0.13,0.24,trim);m.position.set(s*(wid/2+0.12),yBelt+0.1,cabF-0.15);g.add(m);}
+  for(const s of[-1,1]){
+    const arm=box(0.10,0.05,0.05,trim);arm.position.set(s*(wid/2+0.05),yBelt+0.08,cabF-0.14);g.add(arm);
+    const m=box(0.05,0.11,0.20,paint);m.position.set(s*(wid/2+0.11),yBelt+0.10,cabF-0.14);g.add(m);
+    const mg=box(0.02,0.08,0.16,glass);mg.position.set(s*(wid/2+0.135),yBelt+0.10,cabF-0.14);g.add(mg);}
   // wheels: rear axle at z=0, front axle at z=L, front wheels steer
   const tireMat=new T.MeshStandardMaterial({color:0x111417,roughness:.95});
-  const rimMat=new T.MeshStandardMaterial({color:0xc3c9ce,roughness:.35,metalness:.8});
+  const rimMat=new T.MeshStandardMaterial({color:0xc3c9ce,roughness:.22,metalness:.9,envMapIntensity:1.4});
   const wheels=[],steerers=[];const wx=wid/2-0.04;
   for(const px of[-wx,wx])for(const pz of[0,L]){
     const steer=new T.Group();steer.position.set(px,wheelR,pz);g.add(steer);
     const roll=new T.Group();steer.add(roll);
-    const tire=new T.Mesh(new T.CylinderGeometry(wheelR,wheelR,0.3,20),tireMat);tire.rotation.z=Math.PI/2;tire.castShadow=true;roll.add(tire);
-    const rim=new T.Mesh(new T.CylinderGeometry(wheelR*0.6,wheelR*0.6,0.32,14),rimMat);rim.rotation.z=Math.PI/2;roll.add(rim);
-    const hub=new T.Mesh(new T.CylinderGeometry(wheelR*0.15,wheelR*0.15,0.34,8),chrome);hub.rotation.z=Math.PI/2;roll.add(hub);
+    const tire=new T.Mesh(new T.TorusGeometry(wheelR*0.80,wheelR*0.21,8,22),tireMat);
+    tire.rotation.y=Math.PI/2;tire.castShadow=true;roll.add(tire);
+    const tread=new T.Mesh(new T.CylinderGeometry(wheelR,wheelR,0.24,26),tireMat);
+    tread.rotation.z=Math.PI/2;tread.castShadow=true;roll.add(tread);
+    const rim=new T.Mesh(new T.CylinderGeometry(wheelR*0.62,wheelR*0.62,0.30,22),rimMat);rim.rotation.z=Math.PI/2;roll.add(rim);
+    const dish=new T.Mesh(new T.CylinderGeometry(wheelR*0.50,wheelR*0.56,0.10,20),rimMat);
+    dish.rotation.z=Math.PI/2;dish.position.x=0.11;roll.add(dish);
+    const hub=new T.Mesh(new T.CylinderGeometry(wheelR*0.16,wheelR*0.16,0.34,10),chrome);hub.rotation.z=Math.PI/2;roll.add(hub);
     wheels.push(roll); if(pz===L)steerers.push(steer);
   }
   const hlMat=new T.MeshStandardMaterial({color:0xfff6de,emissive:0xffeec2,emissiveIntensity:1.0});
@@ -2346,6 +2626,9 @@ function makeVehicle(type,color){
   // soft contact shadow
   const blob=new T.Mesh(new T.PlaneGeometry(wid*1.55,bodyLen*1.08),M_BLOB);
   blob.rotation.x=-Math.PI/2;blob.position.set(0,0.05,bodyCz);g.add(blob);
+  // collapse the body and each wheel down to one mesh per material
+  for(const roll of wheels)mergeChildren(roll);
+  mergeChildren(g);
   return {group:g,head,tail,wheels,steerers,L,len:bodyLen,wid,wheelR};
 }
 
@@ -2503,25 +2786,64 @@ function buildWater(){
          'sw+=sin((wp0.x+wp0.z)*0.0037+uTime*0.15)*0.6;',
          'transformed.z+=sw*uSwell*0.09;',   // plane is XY before the -90deg X rotation
          'vWPos=(modelMatrix*vec4(transformed,1.0)).xyz;'].join('\n'));
-    sh.fragmentShader='varying vec3 vWPos;\nuniform float uTime,uChop,uGlitter,uHazeK,uHazeAmt;\nuniform vec3 uSunDir,uSunCol,uHaze;\nvec3 gWaveN=vec3(0.0,1.0,0.0);\n'+sh.fragmentShader
+    sh.fragmentShader=['varying vec3 vWPos;',
+      'uniform float uTime,uChop,uGlitter,uHazeK,uHazeAmt;',
+      'uniform vec3 uSunDir,uSunCol,uHaze;',
+      'vec3 gWaveN=vec3(0.0,1.0,0.0);',
+      // Gradient noise carrying its own analytic derivative, so one lookup gives both the
+      // height and the exact surface slope — no finite differencing, no extra taps.
+      'vec2 wHash(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));',
+      '  return -1.0+2.0*fract(sin(p)*43758.5453123);}',
+      'vec3 wNoised(vec2 p){',
+      '  vec2 i=floor(p), f=fract(p);',
+      '  vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);',
+      '  vec2 du=30.0*f*f*(f*(f-2.0)+1.0);',
+      '  vec2 ga=wHash(i), gb=wHash(i+vec2(1.0,0.0));',
+      '  vec2 gc=wHash(i+vec2(0.0,1.0)), gd=wHash(i+vec2(1.0,1.0));',
+      '  float va=dot(ga,f), vb=dot(gb,f-vec2(1.0,0.0));',
+      '  float vc=dot(gc,f-vec2(0.0,1.0)), vd=dot(gd,f-vec2(1.0,1.0));',
+      '  float v=va+u.x*(vb-va)+u.y*(vc-va)+u.x*u.y*(va-vb-vc+vd);',
+      '  vec2 d=ga+u.x*(gb-ga)+u.y*(gc-ga)+u.x*u.y*(ga-gb-gc+gd)',
+      '        +du*(u.yx*(va-vb-vc+vd)+vec2(vb,vc)-va);',
+      '  return vec3(v,d);}',
+      // one fbm octave: rotated and scaled domain, with the rotation transposed back out
+      // of the gradient so the accumulated slope stays correct
+      'void wOct(inout float h, inout vec2 g, vec2 q, float f, float a, vec2 off, vec2 cs){',
+      '  vec2 r=vec2(cs.x*q.x-cs.y*q.y, cs.y*q.x+cs.x*q.y)*f+off;',
+      '  vec3 n=wNoised(r);',
+      '  h+=a*n.x;',
+      '  g+=a*f*vec2(cs.x*n.y+cs.y*n.z, -cs.y*n.y+cs.x*n.z);}',
+      ''].join('\n')+sh.fragmentShader
       .replace('#include <normal_fragment_maps>',
         ['#include <normal_fragment_maps>',
          '{',
-         '  vec2 p=vWPos.xz; float nx=0.0,nz=0.0;',
-         '  vec3 fr1=vec3(0.062,0.108,0.195); vec3 sp1=vec3(0.75,1.05,1.55); vec3 am1=vec3(0.22,0.21,0.19);',
-         '  vec3 fr2=vec3(0.345,0.640,1.180); vec3 sp2=vec3(2.10,3.05,4.40); vec3 am2=vec3(0.155,0.105,0.070);',
-         '  vec2 d0=vec2(0.92,0.39),d1=vec2(-0.42,0.91),d2=vec2(0.66,-0.75);',
-         '  vec2 d3=vec2(-0.86,-0.51),d4=vec2(0.31,0.95),d5=vec2(-0.97,0.24);',
-         '  float b0=dot(p,d0)*fr1.x+uTime*sp1.x; nx+=cos(b0)*fr1.x*am1.x*d0.x; nz+=cos(b0)*fr1.x*am1.x*d0.y;',
-         '  float b1=dot(p,d1)*fr1.y+uTime*sp1.y; nx+=cos(b1)*fr1.y*am1.y*d1.x; nz+=cos(b1)*fr1.y*am1.y*d1.y;',
-         '  float b2=dot(p,d2)*fr1.z+uTime*sp1.z; nx+=cos(b2)*fr1.z*am1.z*d2.x; nz+=cos(b2)*fr1.z*am1.z*d2.y;',
-         '  float w=sin(b0)*0.6+sin(b1)*0.4;',
-         '  float b3=dot(p,d3)*fr2.x+uTime*sp2.x+w*0.9; nx+=cos(b3)*fr2.x*am2.x*d3.x; nz+=cos(b3)*fr2.x*am2.x*d3.y;',
-         '  float b4=dot(p,d4)*fr2.y+uTime*sp2.y+w*1.4; nx+=cos(b4)*fr2.y*am2.y*d4.x; nz+=cos(b4)*fr2.y*am2.y*d4.y;',
-         '  float b5=dot(p,d5)*fr2.z+uTime*sp2.z+w*2.1; nx+=cos(b5)*fr2.z*am2.z*d5.x; nz+=cos(b5)*fr2.z*am2.z*d5.y;',
+         // Six summed sine waves are periodic and directional by construction, which is
+         // where the corduroy striping came from. This is gradient-noise fbm instead,
+         // sampled in a wind-aligned frame that is compressed across the wind so crests
+         // elongate the way wind-driven chop actually does — irregular, never tiling.
+         '  vec2 p=vWPos.xz;',
+         '  vec2 e1=vec2(0.822,0.570);',            // wind direction
+         '  vec2 e2=vec2(-0.570,0.822);',           // across wind
+         '  const float ANISO=0.42;',
+         '  vec2 q=vec2(dot(p,e1),dot(p,e2)*ANISO)*0.0715;',   // ~14 m primary wavelength
          '  float dist=length(vWPos-cameraPosition);',
          '  float det=clamp(1.0-dist/1500.0,0.03,1.0);',
-         '  vec3 wN=normalize(vec3(-nx*uChop*5.4*det,1.0,-nz*uChop*5.4*det));',
+         // the finest octaves are sub-pixel long before the coarse ones are, so they fade first
+         '  float lodA=clamp(1.0-dist/900.0,0.0,1.0);',
+         '  float lodB=clamp(1.0-dist/420.0,0.0,1.0);',
+         '  float h=0.0; vec2 g=vec2(0.0);',
+         '  wOct(h,g,q,1.00 ,0.55      ,vec2( 0.31,-0.17)*uTime,vec2(1.000, 0.000));',
+         '  wOct(h,g,q,2.13 ,0.30      ,vec2(-0.24, 0.29)*uTime,vec2(0.707, 0.707));',
+         '  wOct(h,g,q,4.47 ,0.16*mix(0.45,1.0,lodA),vec2( 0.44, 0.21)*uTime,vec2(-0.259,0.966));',
+         // most of the water on screen is far away, so skipping the fine octaves outright
+         // there is worth far more than the amplitude fade alone
+         '  if(lodA>0.01) wOct(h,g,q,9.21 ,0.085*lodA,vec2(-0.51,-0.33)*uTime,vec2(0.500,-0.866));',
+         '  if(lodB>0.01) wOct(h,g,q,18.7 ,0.045*lodB,vec2( 0.67,-0.48)*uTime,vec2(-0.866,-0.500));',
+         // gradient back out of the wind/anisotropy frame into world XZ
+         '  float gx=g.x*e1.x+g.y*e2.x*ANISO;',
+         '  float gz=g.x*e1.y+g.y*e2.y*ANISO;',
+         '  float nx=gx*0.0715, nz=gz*0.0715;',
+         '  vec3 wN=normalize(vec3(-nx*uChop*7.0*det,1.0,-nz*uChop*7.0*det));',
          '  normal=normalize((viewMatrix*vec4(wN,0.0)).xyz);',
          '  gWaveN=wN;',
          '}'].join('\n'))
@@ -2727,7 +3049,7 @@ function buildWorld(){
   gantry(idxAtZ(3500),'arrow',world);
   gantry(idxAtZ(6300),'arrow',world);
   buildShores(world);
-  scene.add(buildCargoShip());
+  world.add(buildCargoShip());
   buildWater();
   buildTraffic();
   buildAmbience();
